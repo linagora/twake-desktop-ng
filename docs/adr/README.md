@@ -5,6 +5,7 @@ This directory contains Architecture Decision Records (ADRs) for the Twake Deskt
 ## What is an ADR?
 
 An ADR documents a significant architectural decision made for this project. Each ADR captures:
+
 - The context and problem
 - The decision taken
 - The consequences (positive and negative)
@@ -35,9 +36,9 @@ Use this template for new ADRs:
 
 ## ADR Index
 
-| ID | Title | Status | Date |
-|----|-------|--------|------|
-| 0001 | Initial ADR setup | Accepted | 2026-03-25 |
+| ID   | Title                           | Status   | Date       |
+| ---- | ------------------------------- | -------- | ---------- |
+| 0001 | Initial ADR setup               | Accepted | 2026-03-25 |
 | 0002 | Authentication flow (OIDC PKCE) | Proposed | 2026-03-25 |
 
 ## How to Use

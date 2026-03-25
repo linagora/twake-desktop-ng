@@ -14,6 +14,7 @@ Twake Desktop NG is a sync application with an embedded web capability. We need 
 4. Handles two usage types: interactive and non-interactive (scheduled tasks)
 
 **Key points:**
+
 - System: OAuth2 / OIDC
 - First contact: discovery via `/.well-known/twake/desktop-configuration`
 - Two token lifetimes: interactive (A) and non-interactive (B)
@@ -24,11 +25,13 @@ Twake Desktop NG is a sync application with an embedded web capability. We need 
 ### 1. Initial Configuration
 
 **Step 1: Server URL input**
+
 - User enters the Twake server URL (e.g., `https://twake.company.com`)
 - Application queries: `https://twake.company.com/.well-known/twake/desktop-configuration`
 
 **Step 2: Configuration retrieval**
 The `.well-known` response contains:
+
 ```json
 {
   "sso_url": "https://sso.company.com",
@@ -45,6 +48,7 @@ The `.well-known` response contains:
 **Lifetime:** Refresh token valid for duration (A)
 
 **OIDC PKCE flow:**
+
 ```
 1. Application generates code_verifier and code_challenge
 2. Redirect to SSO in embedded webview
@@ -55,6 +59,7 @@ The `.well-known` response contains:
 ```
 
 **Token endpoints:**
+
 - Authorization: `{sso_url}/oauth2/auth`
 - Token: `{sso_url}/oauth2/token`
 
@@ -65,6 +70,7 @@ The `.well-known` response contains:
 **Lifetime:** Refresh token valid for duration (B), where B > A
 
 **Token exchange:**
+
 ```
 1. Application uses refresh_token from interactive flow
 2. Exchange to client_id_background
@@ -73,16 +79,19 @@ The `.well-known` response contains:
 ```
 
 **Trigger conditions:**
+
 - **Automatic on interactive auth:** Whenever a successful interactive authentication occurs, if no valid background token exists, immediately trigger the token exchange to client_id_background
 - **On-demand:** When a scheduled task needs to run and no valid background token is available
 
 **If `client_id_background` is not provided:**
+
 - Use the same `client_id_interactive` for all cases
 - Lifetime will be configured for this client
 
 ### 4. Token Sharing
 
 **Same account, same session:**
+
 - Tokens are shared between sync application and web capability
 - Web capability can use the same tokens for APIs
 - Native Single Sign-On via OIDC
@@ -90,6 +99,7 @@ The `.well-known` response contains:
 ### 5. Token Refresh
 
 **Strategy:**
+
 ```
 - Auto-refresh before access_token expiration
 - If refresh_token expires → re-authenticate
@@ -123,10 +133,12 @@ The `.well-known` response contains:
 ## Migration
 
 **For existing installations:**
+
 - Keep existing tokens until expiration
 - New configuration via full flow
 
 **Compatibility version:**
+
 - Minimum server: Twake Server with `/.well-known/twake/desktop-configuration` support
 
 ## References
