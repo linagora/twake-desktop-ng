@@ -11,12 +11,14 @@
 ### Matin (08:00 - 10:00) — Setup Cargo
 
 **Tâche B1.1: Créer projet Rust**
+
 ```bash
 cargo new sync-engine --lib
 cd sync-engine
 ```
 
 **Tâche B1.2: Cargo.toml**
+
 ```toml
 [package]
 name = "twake-sync"
@@ -53,6 +55,7 @@ jsonrpsee = { version = "0.22", features = ["server"] }
 ```
 
 **Tâche B1.3: Module structure**
+
 ```
 sync-engine/
 ├── Cargo.toml
@@ -80,6 +83,7 @@ sync-engine/
 ### Matin (10:00 - 12:00) — Models
 
 **Tâche B1.4: FileState enum**
+
 ```rust
 // src/models/file_state.rs
 use serde::{Deserialize, Serialize};
@@ -108,6 +112,7 @@ impl std::fmt::Display for FileState {
 ```
 
 **Tâche B1.5: FileNode struct**
+
 ```rust
 // src/models/file_node.rs
 use serde::{Deserialize, Serialize};
@@ -140,11 +145,11 @@ impl FileNode {
             parent_id: None,
         }
     }
-    
+
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
-    
+
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
@@ -152,6 +157,7 @@ impl FileNode {
 ```
 
 **Tâche B1.6: FileStatus (for IPC response)**
+
 ```rust
 // src/models/mod.rs
 pub mod file_node;
@@ -187,6 +193,7 @@ impl From<&FileNode> for FileStatus {
 ### Après-midi (14:00 - 16:00) — VFS Trait
 
 **Tâche B1.7: VFS trait definition**
+
 ```rust
 // src/vfs/vfs_trait.rs
 use crate::models::{FileNode, FileState};
@@ -197,29 +204,29 @@ use async_trait::async_trait;
 pub trait VfsBackend: Send + Sync {
     /// Mount the virtual file system
     async fn mount(&self, path: &Path) -> Result<(), VfsError>;
-    
+
     /// Unmount the virtual file system
     async fn unmount(&self) -> Result<(), VfsError>;
-    
+
     /// Get file/directory metadata
     async fn get_node(&self, path: &Path) -> Result<FileNode, VfsError>;
-    
+
     /// List directory contents
     async fn list_dir(&self, path: &Path) -> Result<Vec<FileNode>, VfsError>;
-    
+
     /// Create a placeholder file (ghost)
     async fn create_placeholder(
         &self,
         path: &Path,
         metadata: FileMetadata,
     ) -> Result<(), VfsError>;
-    
+
     /// Hydrate a ghost file (download content)
     async fn hydrate(&self, path: &Path) -> Result<(), VfsError>;
-    
+
     /// Get file state
     async fn get_state(&self, path: &Path) -> Result<FileState, VfsError>;
-    
+
     /// Update file state
     async fn set_state(&self, path: &Path, state: FileState) -> Result<(), VfsError>;
 }
@@ -228,13 +235,13 @@ pub trait VfsBackend: Send + Sync {
 pub enum VfsError {
     #[error("File not found: {0}")]
     NotFound(String),
-    
+
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("Sync error: {0}")]
     Sync(String),
 }
@@ -248,6 +255,7 @@ pub struct FileMetadata {
 ```
 
 **Tâche B1.8: In-memory implementation (for testing)**
+
 ```rust
 // src/vfs/mod.rs
 pub mod vfs_trait;
@@ -277,28 +285,28 @@ impl VfsBackend for InMemoryVfs {
     async fn mount(&self, _path: &Path) -> Result<(), VfsError> {
         Ok(())
     }
-    
+
     async fn unmount(&self) -> Result<(), VfsError> {
         Ok(())
     }
-    
+
     async fn get_node(&self, path: &Path) -> Result<FileNode, VfsError> {
         let nodes = self.nodes.read().await;
         nodes.get(path.to_str().unwrap())
             .cloned()
             .ok_or_else(|| VfsError::NotFound(path.to_str().unwrap().to_string()))
     }
-    
+
     async fn list_dir(&self, path: &Path) -> Result<Vec<FileNode>, VfsError> {
         let nodes = self.nodes.read().await;
         let prefix = path.to_str().unwrap();
-        
+
         Ok(nodes.values()
             .filter(|n| n.path.starts_with(prefix))
             .cloned()
             .collect())
     }
-    
+
     async fn create_placeholder(
         &self,
         path: &Path,
@@ -317,7 +325,7 @@ impl VfsBackend for InMemoryVfs {
         nodes.insert(path.to_str().unwrap().to_string(), node);
         Ok(())
     }
-    
+
     async fn hydrate(&self, path: &Path) -> Result<(), VfsError> {
         let mut nodes = self.nodes.write().await;
         if let Some(node) = nodes.get_mut(path.to_str().unwrap()) {
@@ -325,14 +333,14 @@ impl VfsBackend for InMemoryVfs {
         }
         Ok(())
     }
-    
+
     async fn get_state(&self, path: &Path) -> Result<FileState, VfsError> {
         let nodes = self.nodes.read().await;
         nodes.get(path.to_str().unwrap())
             .map(|n| n.state)
             .ok_or_else(|| VfsError::NotFound(path.to_str().unwrap().to_string()))
     }
-    
+
     async fn set_state(&self, path: &Path, state: FileState) -> Result<(), VfsError> {
         let mut nodes = self.nodes.write().await;
         if let Some(node) = nodes.get_mut(path.to_str().unwrap()) {
@@ -350,6 +358,7 @@ impl VfsBackend for InMemoryVfs {
 ### Après-midi (16:00 - 18:00) — FUSE Backend
 
 **Tâche B1.9: FUSE setup**
+
 ```rust
 // src/fuse/fuse_backend.rs
 use std::path::Path;
@@ -377,11 +386,11 @@ impl FuseBackend {
 #[async_trait]
 impl FileSystem for FuseBackend {
     type Error = VfsError;
-    
+
     async fn lookup(&self, req: &Request<'_>, parent: u64, name: &std::ffi::OsStr) -> Result<Reply::Lookup, Self::Error> {
         let path = self.path_from_parent(parent, name);
         let node = self.vfs.get_node(Path::new(&path)).await?;
-        
+
         Ok(Reply::Lookup {
             entry: fuse3::Entry {
                 inode: node.id.as_u128() as u64,
@@ -392,7 +401,7 @@ impl FileSystem for FuseBackend {
             },
         })
     }
-    
+
     async fn getattr(&self, req: &Request<'_>, ino: u64) -> Result<Reply::Attr, Self::Error> {
         // Get inode from ID mapping
         Ok(Reply::Attr {
@@ -417,17 +426,17 @@ impl FileSystem for FuseBackend {
             timeout: 3600,
         })
     }
-    
+
     async fn readdir(&self, req: &Request<'_>, ino: u64, offset: i64) -> Result<Reply::Entry, Self::Error> {
         // List directory entries
         Ok(Reply::Entry { entries: vec![] })
     }
-    
+
     async fn open(&self, req: &Request<'_>, ino: u64, flags: i32) -> Result<Reply::Open, Self::Error> {
         // Trigger hydration if ghost
         Ok(Reply::Open { fh: 0, flags: flags as u32 })
     }
-    
+
     async fn read(&self, req: &Request<'_>, ino: u64, fh: u64, offset: i64, size: u32) -> Result<Reply::Data, Self::Error> {
         // Read file content
         Ok(Reply::Data { data: vec![] })
@@ -436,6 +445,7 @@ impl FileSystem for FuseBackend {
 ```
 
 **Tâche B1.10: Mount helper**
+
 ```rust
 // src/fuse/mod.rs
 pub mod fuse_backend;
@@ -446,15 +456,16 @@ use tokio::process::Command;
 pub async fn mount_fuse(mount_point: &Path) -> Result<(), std::io::Error> {
     // Create mount point
     tokio::fs::create_dir_all(mount_point).await?;
-    
+
     // Mount FUSE filesystem
     // For MVP, we'll use a simpler approach with fuse3
-    
+
     Ok(())
 }
 ```
 
 **Tâche B1.11: Simple FUSE with fuse3**
+
 ```rust
 // src/bin/twake-vfs.rs
 use std::path::PathBuf;
@@ -474,15 +485,15 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    
+
     tracing_subscriber::fmt::init();
-    
+
     let vfs = InMemoryVfs::new();
     let fuse = FuseBackend::new(Box::new(vfs));
-    
+
     info!("Mounting FUSE at {:?}", args.mount);
     fuse.mount(&args.mount).await?;
-    
+
     // Keep running
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -499,6 +510,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Matin (08:00 - 10:00) — SQLite Setup
 
 **Tâche B2.1: Database schema**
+
 ```sql
 -- sync-engine/migrations/001_initial.sql
 CREATE TABLE IF NOT EXISTS file_nodes (
@@ -517,6 +529,7 @@ CREATE INDEX IF NOT EXISTS idx_state ON file_nodes(state);
 ```
 
 **Tâche B2.2: Repository implementation**
+
 ```rust
 // src/db/repository.rs
 use sqlx::SqlitePool;
@@ -530,13 +543,13 @@ pub struct FileRepository {
 impl FileRepository {
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
         let pool = SqlitePool::connect(database_url).await?;
-        
+
         // Run migrations
         sqlx::migrate!("./migrations").run(&pool).await?;
-        
+
         Ok(Self { pool })
     }
-    
+
     pub async fn get(&self, path: &str) -> Result<Option<FileNode>, sqlx::Error> {
         let node = sqlx::query_as::<_, FileNode>(
             "SELECT * FROM file_nodes WHERE path = ?"
@@ -544,10 +557,10 @@ impl FileRepository {
         .bind(path)
         .fetch_optional(&self.pool)
         .await?;
-        
+
         Ok(node)
     }
-    
+
     pub async fn insert(&self, node: &FileNode) -> Result<(), sqlx::Error> {
         sqlx::query(
             "INSERT OR REPLACE INTO file_nodes (id, path, state, size, modified, is_dir, parent_id)
@@ -562,10 +575,10 @@ impl FileRepository {
         .bind(node.parent_id.map(|id| id.to_string()))
         .execute(&self.pool)
         .await?;
-        
+
         Ok(())
     }
-    
+
     pub async fn update_state(&self, path: &str, state: FileState) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE file_nodes SET state = ? WHERE path = ?"
@@ -574,10 +587,10 @@ impl FileRepository {
         .bind(path)
         .execute(&self.pool)
         .await?;
-        
+
         Ok(())
     }
-    
+
     pub async fn list_dir(&self, path: &str) -> Result<Vec<FileNode>, sqlx::Error> {
         let nodes = sqlx::query_as::<_, FileNode>(
             "SELECT * FROM file_nodes WHERE path LIKE ? || '%' AND path != ?"
@@ -586,7 +599,7 @@ impl FileRepository {
         .bind(path)
         .fetch_all(&self.pool)
         .await?;
-        
+
         Ok(nodes)
     }
 }
@@ -599,6 +612,7 @@ impl FileRepository {
 ### Matin (10:00 - 12:00) — Hydration
 
 **Tâche B2.3: Hydration service**
+
 ```rust
 // src/services/hydration.rs
 use std::path::Path;
@@ -619,42 +633,42 @@ impl HydrationService {
     pub fn new(vfs: Box<dyn VfsBackend>, repo: FileRepository) -> Self {
         Self { vfs, repo }
     }
-    
+
     pub async fn hydrate_file(&self, path: &Path) -> Result<(), HydrationError> {
         info!("Hydrating file: {}", path.display());
-        
+
         // Get file metadata
         let node = self.vfs.get_node(path).await?;
-        
+
         if node.state == FileState::Hydrated {
             info!("File already hydrated: {}", path.display());
             return Ok(());
         }
-        
+
         // Update state to syncing
         self.vfs.set_state(path, FileState::Syncing).await?;
-        
+
         // Download file content (placeholder for now)
         self.download_file(path, &node).await?;
-        
+
         // Update state to hydrated
         self.vfs.set_state(path, FileState::Hydrated).await?;
         self.repo.update_state(path.to_str().unwrap(), FileState::Hydrated).await?;
-        
+
         info!("File hydrated: {}", path.display());
         Ok(())
     }
-    
+
     async fn download_file(&self, path: &Path, node: &FileNode) -> Result<(), HydrationError> {
         // For MVP: Create empty file
         // Future: Download from Twake API
-        
+
         let parent = path.parent().ok_or(HydrationError::InvalidPath)?;
         tokio::fs::create_dir_all(parent).await?;
-        
+
         let mut file = File::create(path).await?;
         file.write_all(b"").await?;  // Empty for MVP
-        
+
         Ok(())
     }
 }
@@ -663,16 +677,17 @@ impl HydrationService {
 pub enum HydrationError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("VFS error: {0}")]
     Vfs(#[from] crate::vfs::vfs_trait::VfsError),
-    
+
     #[error("Invalid path")]
     InvalidPath,
 }
 ```
 
 **Tâche B2.4: Integration with IPC**
+
 ```rust
 // src/ipc/handlers.rs
 use crate::models::FileStatus;
@@ -689,12 +704,12 @@ impl IpcHandlers {
         let node = self.vfs.get_node(std::path::Path::new(path)).await?;
         Ok(FileStatus::from(&node))
     }
-    
+
     pub async fn file_hydrate(&self, path: &str) -> Result<bool, IpcError> {
         self.hydration.hydrate_file(std::path::Path::new(path)).await?;
         Ok(true)
     }
-    
+
     pub async fn file_list(&self, path: &str, recursive: bool) -> Result<Vec<crate::models::FileNode>, IpcError> {
         let nodes = self.vfs.list_dir(std::path::Path::new(path)).await?;
         Ok(nodes)
@@ -709,6 +724,7 @@ impl IpcHandlers {
 ### Après-midi (14:00 - 18:00) — Integration et Demo
 
 **Tâche B2.5: Main binary**
+
 ```rust
 // src/bin/twake-vfs.rs
 use std::path::PathBuf;
@@ -723,7 +739,7 @@ use twake_sync::models::InMemoryVfs;
 struct Args {
     #[arg(short, long, default_value = "/mnt/twake")]
     mount: PathBuf,
-    
+
     #[arg(short, long, default_value = "sqlite:twake.db")]
     database: String,
 }
@@ -731,14 +747,14 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    
+
     tracing_subscriber::fmt::init();
-    
+
     // Initialize components
     let vfs = Box::new(InMemoryVfs::new());
     let repo = FileRepository::new(&args.database).await?;
     let hydration = HydrationService::new(vfs.clone(), repo);
-    
+
     // Create test data
     hydration.vfs.create_placeholder(
         PathBuf::from("/mnt/twake/test.txt").as_path(),
@@ -748,9 +764,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             is_dir: false,
         },
     ).await?;
-    
+
     info!("FUSE mounted at {:?}", args.mount);
-    
+
     // Keep running
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -759,6 +775,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 **Tâche B2.6: Test script**
+
 ```bash
 #!/bin/bash
 # test-hydration.sh
@@ -781,28 +798,29 @@ cat /mnt/twake/test.txt
 ```
 
 **Tâche B2.7: Demo data**
+
 ```rust
 // src/bin/setup-demo.rs
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vfs = InMemoryVfs::new();
-    
+
     // Create test structure
     vfs.create_placeholder(
         Path::new("/mnt/twake/documents/test.txt"),
         FileMetadata { size: 1024, modified: now(), is_dir: false },
     ).await?;
-    
+
     vfs.create_placeholder(
         Path::new("/mnt/twake/documents/photo.jpg"),
         FileMetadata { size: 102400, modified: now(), is_dir: false },
     ).await?;
-    
+
     vfs.create_placeholder(
         Path::new("/mnt/twake/shared"),
         FileMetadata { size: 0, modified: now(), is_dir: true },
     ).await?;
-    
+
     Ok(())
 }
 ```

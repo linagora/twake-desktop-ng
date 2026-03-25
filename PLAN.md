@@ -44,6 +44,7 @@
 ### Livrables
 
 #### A1. Infrastructure CEF
+
 - [ ] Setup CMake avec CEF prebuilt binaries
 - [ ] CEF initialization (CefInitialize, message loop)
 - [ ] Browser creation (multi-window support)
@@ -51,18 +52,21 @@
 - [ ] Crash recovery (renderer crash → reload window)
 
 #### A2. Window Management
+
 - [ ] Create/Close/Minimize/Maximize windows
 - [ ] Native window decorations
 - [ ] Single instance lock
 - [ ] Window persistence (position, size)
 
 #### A3. Native Integration
+
 - [ ] Tray icon (Windows/Mac/Linux)
 - [ ] Context menu (open, quit, settings)
 - [ ] Native notifications (WinRT/NSUserNotification/libnotify)
 - [ ] App launcher (open VFS files with external editors)
 
 #### A4. JavaScript Bridge
+
 - [ ] Bridge injection (`window.__twake`)
 - [ ] Domain filtering (only on Twake domains)
 - [ ] Method registration (getFileStatus, requestHydration, emit)
@@ -70,6 +74,7 @@
 - [ ] Security: inject only on trusted domains
 
 #### A5. IPC Client
+
 - [ ] JSON-RPC client implementation
 - [ ] Unix socket / named pipe connection
 - [ ] Method calls to Rust engine
@@ -81,6 +86,7 @@
 **Bloquante:** Contrat IPC (JSON-RPC schema) — 3 jours max d'attente
 
 **Non bloquantes:**
+
 - Peut préparer l'environnement CEF pendant l'attente
 - Peut développer le bridge JS sans IPC réel (mock)
 
@@ -123,12 +129,14 @@ src/
 ### Livrables
 
 #### B1. Core Models
+
 - [ ] FileNode struct (UUID, path, state, version, parent_id)
 - [ ] FileState enum (Ghost, Hydrated, Modified, Syncing, Conflict, Error)
 - [ ] Version type (semantic versioning or vector clock)
 - [ ] Uuid generation (v4)
 
 #### B2. VFS Trait
+
 - [ ] Common VFS trait definition
 - [ ] FileNodeState trait for state management
 - [ ] Path resolution (UUID → path, path → UUID)
@@ -136,6 +144,7 @@ src/
 - [ ] File operations (metadata, size, modified time)
 
 #### B3. FUSE Backend (Linux)
+
 - [ ] FUSE 3.x integration (fuse3 crate)
 - [ ] File system mounting
 - [ ] Placeholder file creation
@@ -143,6 +152,7 @@ src/
 - [ ] File event watching (notify crate)
 
 #### B4. Database Layer
+
 - [ ] SQLite schema with sqlx
 - [ ] FileNode persistence
 - [ ] Version tracking
@@ -150,6 +160,7 @@ src/
 - [ ] Async queries (tokio-postgres or sqlx with tokio)
 
 #### B5. Reconciliation Engine
+
 - [ ] ReconciliationEngine trait definition
 - [ ] CouchStyleEngine implementation
 - [ ] Last-write-wins strategy
@@ -158,6 +169,7 @@ src/
 - [ ] Manual resolution support
 
 #### B6. Local File Watching
+
 - [ ] File change detection (notify crate)
 - [ ] Debouncing for batched changes
 - [ ] Modified file tracking
@@ -230,6 +242,7 @@ sync-engine/
 ### Livrables
 
 #### C1. IPC Contract (PRIORITAIRE — Jour 1-3)
+
 - [ ] JSON-RPC schema definition
 - [ ] Method definitions:
   - `file.status(path: String) -> FileStatus`
@@ -247,6 +260,7 @@ sync-engine/
 - [ ] Documentation (OpenAPI-style or JSON Schema)
 
 #### C2. IPC Server
+
 - [ ] jsonrpsee server setup (Unix socket)
 - [ ] Method handlers (delegate to Sync Core)
 - [ ] Event subscription (broadcast channel)
@@ -254,6 +268,7 @@ sync-engine/
 - [ ] Graceful shutdown
 
 #### C3. Event Bus
+
 - [ ] tokio::sync::broadcast channel
 - [ ] Event publishing (internal + IPC)
 - [ ] Event subscription (internal + IPC)
@@ -261,6 +276,7 @@ sync-engine/
 - [ ] Event forwarding to CEF shell
 
 #### C4. OIDC Authentication
+
 - [ ] .well-known discovery client
 - [ ] PKCE flow implementation
 - [ ] Authorization code exchange
@@ -269,6 +285,7 @@ sync-engine/
 - [ ] Session management
 
 #### C5. Network Layer
+
 - [ ] WebSocket client (tokio-tungstenite)
 - [ ] SSE client (reqwest)
 - [ ] HTTP fallback (reqwest)
@@ -277,6 +294,7 @@ sync-engine/
 - [ ] Offline detection
 
 #### C6. Sync Protocol
+
 - [ ] File metadata sync (remote → local)
 - [ ] File upload (local → remote)
 - [ ] Delta sync (only changed files)
@@ -383,51 +401,52 @@ Stream C (IPC + Network):
 **Transport:** Unix socket (Linux/Mac) / Named pipe (Windows)
 
 **Schema:**
+
 ```json
 {
   "methods": [
     {
       "name": "file.status",
-      "params": {"path": "string"},
+      "params": { "path": "string" },
       "returns": "FileStatus"
     },
     {
       "name": "file.hydrate",
-      "params": {"path": "string"},
+      "params": { "path": "string" },
       "returns": "Result<void, Error>"
     },
     {
       "name": "file.list",
-      "params": {"path": "string", "recursive": "boolean"},
+      "params": { "path": "string", "recursive": "boolean" },
       "returns": "Vec<FileNode>"
     },
     {
       "name": "events.subscribe",
-      "params": {"events": "string[]"},
+      "params": { "events": "string[]" },
       "returns": "Subscription"
     },
     {
       "name": "events.emit",
-      "params": {"event": "string", "data": "string"},
+      "params": { "event": "string", "data": "string" },
       "returns": "Result<void, Error>"
     }
   ],
   "events": [
     {
       "name": "file.changed",
-      "payload": {"path": "string", "status": "FileState"}
+      "payload": { "path": "string", "status": "FileState" }
     },
     {
       "name": "sync.started",
-      "payload": {"path": "string"}
+      "payload": { "path": "string" }
     },
     {
       "name": "sync.completed",
-      "payload": {"path": "string", "duration": "number"}
+      "payload": { "path": "string", "duration": "number" }
     },
     {
       "name": "conflict.detected",
-      "payload": {"path": "string", "versions": "Version[]"}
+      "payload": { "path": "string", "versions": "Version[]" }
     }
   ]
 }
@@ -441,11 +460,11 @@ window.__twake = {
   getFileStatus(path: string): FileStatus,
   hydrateFile(path: string): Promise<void>,
   listFiles(path: string, recursive: boolean): FileNode[],
-  
+
   // Event subscription
   subscribe(event: string): void,
   unsubscribe(event: string): void,
-  
+
   // Event emission
   emit(event: string, data: object): void
 }
@@ -485,29 +504,32 @@ pub trait VfsBackend: Send + Sync {
 
 ## Risques et Mitigations
 
-| Risque | Impact | Mitigation |
-|--------|--------|------------|
-| CEF build complexe | High | Utiliser prébuilt binaries, documenter setup |
-| IPC contract instable | Medium | Versionner le contrat, backward compatible |
-| VFS crash (FUSE) | High | Isoler dans processus séparé, restart automatique |
-| Conflict resolution | Medium | Last-write-wins + backup (Phase 1), user choice |
-| OIDC SSO complexity | Medium | Mock SSO pour dev, vrai SSO pour prod |
+| Risque                | Impact | Mitigation                                        |
+| --------------------- | ------ | ------------------------------------------------- |
+| CEF build complexe    | High   | Utiliser prébuilt binaries, documenter setup      |
+| IPC contract instable | Medium | Versionner le contrat, backward compatible        |
+| VFS crash (FUSE)      | High   | Isoler dans processus séparé, restart automatique |
+| Conflict resolution   | Medium | Last-write-wins + backup (Phase 1), user choice   |
+| OIDC SSO complexity   | Medium | Mock SSO pour dev, vrai SSO pour prod             |
 
 ---
 
 ## Checklist Globale
 
 ### Semaine 1
+
 - [ ] Contrat IPC écrit et validé (Dev C)
 - [ ] Environnement CEF prêt (Dev A)
 - [ ] Sync Core models + trait (Dev B)
 
 ### Semaine 2-4
+
 - [ ] CEF Shell fonctionnel (Dev A)
 - [ ] Sync Core VFS fonctionnel (Dev B)
 - [ ] IPC Server + Network fonctionnel (Dev C)
 
 ### Semaine 5-6
+
 - [ ] Integration complète
 - [ ] Tests E2E
 - [ ] Performance tuning

@@ -83,6 +83,7 @@ Twake Desktop NG is a **collaborative work platform** (not just a file sync clie
 2. **Sync Engine (Rust)** — ~30MB RAM, handles VFS, sync, reconciliation, network
 
 **Benefits:**
+
 - Isolation: WebView crash ≠ sync engine crash
 - Security: C++ shell minimal, Rust engine sandboxed
 - Performance: Separate CPU cores, no contention
@@ -94,27 +95,29 @@ Twake Desktop NG is a **collaborative work platform** (not just a file sync clie
 
 ### Why CEF
 
-| Criteria | CEF | Electron | Tauri |
-|----------|-----|----------|-------|
-| **Rendu web apps** | ✅ Chromium | ✅ Chromium | ⚠️ WebView système |
-| **Poids install** | ~100MB | ~150MB | ~10MB |
-| **RAM idle** | ~100-120MB | ~200-300MB | ~30MB |
-| **Node.js exposé** | ✅ Non | ⚠️ Oui | ✅ Non |
-| **Langage shell** | C++ | JS/TS | Rust |
-| **Intégration Rust** | ⚠️ IPC | ⚠️ IPC | ✅ Direct |
-| **Packaging** | ⚠️ Complexe | ✅ Trivial | ✅ Simple |
-| **Maturité** | ✅ 17 ans | ✅ Très mature | 🟡 Jeune |
-| **Isolation crash** | ✅ Renderer process | ⚠️ Node.js | ✅ WebView |
+| Criteria             | CEF                 | Electron       | Tauri              |
+| -------------------- | ------------------- | -------------- | ------------------ |
+| **Rendu web apps**   | ✅ Chromium         | ✅ Chromium    | ⚠️ WebView système |
+| **Poids install**    | ~100MB              | ~150MB         | ~10MB              |
+| **RAM idle**         | ~100-120MB          | ~200-300MB     | ~30MB              |
+| **Node.js exposé**   | ✅ Non              | ⚠️ Oui         | ✅ Non             |
+| **Langage shell**    | C++                 | JS/TS          | Rust               |
+| **Intégration Rust** | ⚠️ IPC              | ⚠️ IPC         | ✅ Direct          |
+| **Packaging**        | ⚠️ Complexe         | ✅ Trivial     | ✅ Simple          |
+| **Maturité**         | ✅ 17 ans           | ✅ Très mature | 🟡 Jeune           |
+| **Isolation crash**  | ✅ Renderer process | ⚠️ Node.js     | ✅ WebView         |
 
 **Decision: CEF**
 
 **Rationale:**
+
 1. **Rendu garanti identique** — Chromium bundlé, même comportement que Chrome
 2. **Sécurité** — Pas de Node.js exposé, surface d'attaque réduite
 3. **Stabilité** — 17 ans d'existence, utilisé par Adobe, Spotify, Riot Games
 4. **Isolation des renderer processes** — Une WebView qui crash n'emporte pas les autres
 
 **Trade-offs:**
+
 - C++ pour le shell (500-1000 lignes, maintenable)
 - Packaging plus complexe (build system CEF)
 - Compétences C++ nécessaires (déjà dans l'équipe)
@@ -136,11 +139,13 @@ command_line->AppendSwitch("process-per-tab");
 ```
 
 **Behavior:**
+
 - app1.twake.app (window 1) → Renderer Process A
 - app1.twake.app (window 2) → Renderer Process A (same origin = same process by default)
 - app2.twake.app (window 3) → Renderer Process B
 
 **If a WebView crashes:**
+
 - Only that window is affected
 - Browser process (shell) remains alive
 - Sync engine (Rust) remains alive
@@ -191,7 +196,7 @@ void MyRenderDelegate::OnContextCreated(
     CefRefPtr<CefBrowser> browser,
     CefRefPtr<CefFrame> frame,
     CefRefPtr<CefV8Context> context) {
-  
+
   std::string url = frame->GetURL();
   if (!IsTwakeDomain(url)) {
     return; // Don't inject on non-Twake domains
@@ -225,7 +230,7 @@ bool MyRenderDelegate::OnProcessMessageReceived(
     CefRefPtr<CefFrame> frame,
     CefProcessId source_process,
     CefRefPtr<CefProcessMessage> message) {
-  
+
   // Handle messages from Rust engine (events)
   if (message->GetName() == "TWAKE_EVENT") {
     std::string event = message->GetArgumentList()->GetString(0);
@@ -275,11 +280,11 @@ Sync Engine (Rust)
 
 **This is the most structuring architectural choice.**
 
-| Platform | API | Crate | Status |
-|----------|-----|-------|--------|
-| **Linux** | FUSE | `fuse3` | ✅ Mature, well-documented |
-| **Windows** | ProjFS (Cloud Files API) | `projfs` | ✅ Mature, used by OneDrive |
-| **macOS** | FileProvider | Native (FFI) | ✅ Official, used by Dropbox |
+| Platform    | API                      | Crate        | Status                       |
+| ----------- | ------------------------ | ------------ | ---------------------------- |
+| **Linux**   | FUSE                     | `fuse3`      | ✅ Mature, well-documented   |
+| **Windows** | ProjFS (Cloud Files API) | `projfs`     | ✅ Mature, used by OneDrive  |
+| **macOS**   | FileProvider             | Native (FFI) | ✅ Official, used by Dropbox |
 
 **Node state tracking:**
 
@@ -340,6 +345,7 @@ impl ReconciliationEngine for CouchStyleEngine {
 ```
 
 **Conflict resolution strategy (Phase 1):**
+
 - "Last write wins" with automatic backup copy
 - User sees conflict UI, can choose version
 - Like Git merge tool
@@ -386,6 +392,7 @@ impl ReconciliationEngine for ReconciliationBackend {
 
 **The Problem:**
 Twake web apps are on different origins (app1.twake.app, app2.twake.app, etc.). CEF/Chromium behavior:
+
 - Each origin gets separate renderer processes
 - SharedWorkers do NOT work across origins
 - postMessage does NOT work natively between WebViews
@@ -450,7 +457,7 @@ pub async fn event_loop(
     while let Ok(event) = internal_rx.recv().await {
         // Forward to CEF shell for JS dispatch
         forward_to_shell(&event, &shell_tx).await;
-        
+
         // Also handle internally (notifications, sync triggers, etc.)
         handle_internal(&event).await;
     }
@@ -485,11 +492,13 @@ async fn shell_event_loop(
 ### Network Layer
 
 **WebSocket for real-time CRDT ops (Phase 2):**
+
 - Persistent connection to Twake server
 - Protocol: y-websocket or custom JSON-RPC
 - Server acts as CRDT relay, not truth arbitrator
 
 **Polling fallback (Phase 1):**
+
 - CouchDB replication over HTTP
 - Polling for changes when WebSocket unavailable
 
@@ -504,13 +513,13 @@ use jsonrpsee::proc_macros::rpc;
 pub trait TwakeSyncApi {
     #[method(name = "file.status")]
     async fn file_status(&self, path: String) -> RpcResult<FileStatus>;
-    
+
     #[method(name = "file.hydrate")]
     async fn file_hydrate(&self, path: String) -> RpcResult<()>;
-    
+
     #[subscription(name = "events.subscribe", item = TwakeEvent)]
     async fn subscribe_events(&self) -> SubscriptionResult;
-    
+
     #[method(name = "events.emit")]
     async fn emit_event(&self, event: String, data: String) -> RpcResult<()>;
 }
@@ -548,31 +557,31 @@ impl TwakeSyncApiServer for SyncEngineApi {
 
 ### CEF Shell (C++)
 
-| Component | Technology | Notes |
-|-----------|------------|-------|
-| **CEF** | Chromium Embedded Framework | Latest stable branch |
-| **Build** | CMake + CEF binaries | Prebuilt from Spotify CDN |
-| **Window management** | Native OS APIs | Win32 / Cocoa / GTK |
-| **Tray icon** | Native OS APIs | Win32 / NSStatusItem / AppIndicator |
-| **Notifications** | Native OS APIs | WinRT / NSUserNotification / libnotify |
-| **IPC client** | JSON-RPC over Unix socket | `cpp-ipc` or custom |
+| Component             | Technology                  | Notes                                  |
+| --------------------- | --------------------------- | -------------------------------------- |
+| **CEF**               | Chromium Embedded Framework | Latest stable branch                   |
+| **Build**             | CMake + CEF binaries        | Prebuilt from Spotify CDN              |
+| **Window management** | Native OS APIs              | Win32 / Cocoa / GTK                    |
+| **Tray icon**         | Native OS APIs              | Win32 / NSStatusItem / AppIndicator    |
+| **Notifications**     | Native OS APIs              | WinRT / NSUserNotification / libnotify |
+| **IPC client**        | JSON-RPC over Unix socket   | `cpp-ipc` or custom                    |
 
 ### Sync Engine (Rust)
 
-| Component | Crate | Notes |
-|-----------|-------|-------|
-| **Async runtime** | `tokio` | Multi-threaded, full featured |
-| **VFS Linux** | `fuse3` | FUSE 3.x bindings |
-| **VFS Windows** | `projfs` | ProjFS bindings |
-| **VFS macOS** | FFI to FileProvider | Native framework |
-| **Database** | `sqlx` / `rusqlite` | Async SQL, migrations |
-| **Reconciliation** | `pouchdb-rs` (Phase 1) | CouchDB client |
-| **Reconciliation** | `y-crdt` (Phase 2) | CRDT implementation |
-| **WebSocket** | `tokio-tungstenite` | Async WebSocket |
-| **HTTP** | `reqwest` | Async HTTP client |
-| **IPC server** | `jsonrpsee` | JSON-RPC over Unix socket |
-| **Event bus** | `tokio::sync::broadcast` | Multi-producer, multi-consumer |
-| **UUID** | `uuid` | Version 4, fast |
+| Component          | Crate                    | Notes                          |
+| ------------------ | ------------------------ | ------------------------------ |
+| **Async runtime**  | `tokio`                  | Multi-threaded, full featured  |
+| **VFS Linux**      | `fuse3`                  | FUSE 3.x bindings              |
+| **VFS Windows**    | `projfs`                 | ProjFS bindings                |
+| **VFS macOS**      | FFI to FileProvider      | Native framework               |
+| **Database**       | `sqlx` / `rusqlite`      | Async SQL, migrations          |
+| **Reconciliation** | `pouchdb-rs` (Phase 1)   | CouchDB client                 |
+| **Reconciliation** | `y-crdt` (Phase 2)       | CRDT implementation            |
+| **WebSocket**      | `tokio-tungstenite`      | Async WebSocket                |
+| **HTTP**           | `reqwest`                | Async HTTP client              |
+| **IPC server**     | `jsonrpsee`              | JSON-RPC over Unix socket      |
+| **Event bus**      | `tokio::sync::broadcast` | Multi-producer, multi-consumer |
+| **UUID**           | `uuid`                   | Version 4, fast                |
 
 ---
 
@@ -583,6 +592,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 **Decision:** Separate CEF shell (C++) and sync engine (Rust) processes.
 
 **Rationale:**
+
 - Isolation: WebView crash ≠ sync engine crash
 - Security: Minimal C++ surface, Rust sandboxed
 - Performance: Separate CPU cores
@@ -593,6 +603,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 **Decision:** Every file has an immutable UUID; path is just an alias.
 
 **Rationale:**
+
 - Renames during editing are manageable
 - Many sync clients failed on this point
 - Essential for conflict resolution
@@ -602,6 +613,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 **Decision:** Define trait from the start, implement CouchStyleEngine first.
 
 **Rationale:**
+
 - Don't over-engineer Phase 1
 - Don't close doors to Phase 2
 - 2 days of design save 6 months of pain
@@ -611,6 +623,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 **Decision:** CEF for production, Electron acceptable for MVP.
 
 **Rationale:**
+
 - No Node.js exposure (security)
 - Lighter RAM footprint
 - Same Chromium rendering
@@ -621,6 +634,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 **Decision:** All inter-WebView communication goes through Rust engine.
 
 **Rationale:**
+
 - SharedWorkers impossible across origins
 - Centralized, testable logic
 - Decouples WebViews from each other
@@ -629,17 +643,17 @@ impl TwakeSyncApiServer for SyncEngineApi {
 
 ## Risks and Mitigations
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| **VFS complexity (3 APIs)** | High | High | Start with Linux/FUSE, prove concept |
-| **C++ skill gap** | High | Medium | Already in team; 500-1000 lines only |
-| **CEF build complexity** | Medium | High | Use prebuilt binaries, document setup |
-| **WebView crash isolation** | Medium | Low | Force one renderer process per window |
-| **Inter-WebView communication** | High | Certain | Rust event bus (no SharedWorkers) |
-| **Reconciliation backend lock-in** | High | Medium | ReconciliationEngine trait from start |
-| **Yjs backend compatibility** | High | Medium | Phase 1 with CouchDB, abstraction for Phase 2 |
-| **macOS FileProvider notarization** | Medium | High | Start early with Apple developer account |
-| **IPC reliability** | Medium | Low | jsonrpsee is mature, well-tested |
+| Risk                                | Impact | Probability | Mitigation                                    |
+| ----------------------------------- | ------ | ----------- | --------------------------------------------- |
+| **VFS complexity (3 APIs)**         | High   | High        | Start with Linux/FUSE, prove concept          |
+| **C++ skill gap**                   | High   | Medium      | Already in team; 500-1000 lines only          |
+| **CEF build complexity**            | Medium | High        | Use prebuilt binaries, document setup         |
+| **WebView crash isolation**         | Medium | Low         | Force one renderer process per window         |
+| **Inter-WebView communication**     | High   | Certain     | Rust event bus (no SharedWorkers)             |
+| **Reconciliation backend lock-in**  | High   | Medium      | ReconciliationEngine trait from start         |
+| **Yjs backend compatibility**       | High   | Medium      | Phase 1 with CouchDB, abstraction for Phase 2 |
+| **macOS FileProvider notarization** | Medium | High        | Start early with Apple developer account      |
+| **IPC reliability**                 | Medium | Low         | jsonrpsee is mature, well-tested              |
 
 ---
 
@@ -648,12 +662,14 @@ impl TwakeSyncApiServer for SyncEngineApi {
 ### Phase 1: POC (2-3 weeks)
 
 **Goals:**
+
 - CEF shell setup (CMake, prebuilt binaries)
 - Basic window management
-- Bridge JS ↔ C++ (window.__twake)
+- Bridge JS ↔ C++ (window.\_\_twake)
 - IPC: C++ ↔ Rust (Unix socket)
 
 **Deliverables:**
+
 - Working POC on one platform (Linux)
 - WebView can call Rust engine
 - Rust engine can send events to WebView
@@ -661,12 +677,14 @@ impl TwakeSyncApiServer for SyncEngineApi {
 ### Phase 2: MVP (3 months)
 
 **Goals:**
+
 - OIDC PKCE authentication
 - VFS on one platform (Linux/FUSE)
 - CouchDB-style reconciliation (last-write-wins + backup)
 - One web app in native window
 
 **Deliverables:**
+
 - Working prototype on Linux
 - Authentication flow
 - File sync with placeholder support
@@ -675,6 +693,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 ### Phase 3: Production Ready (6 months)
 
 **Goals:**
+
 - Full cross-platform VFS (Windows ProjFS, macOS FileProvider)
 - Conflict resolution UI
 - Multiple web apps (Drive, Mail, Calendar, Chat)
@@ -682,6 +701,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 - Auto-update infrastructure
 
 **Deliverables:**
+
 - Production build on all 3 platforms
 - Full feature set
 - Performance optimization
@@ -690,11 +710,13 @@ impl TwakeSyncApiServer for SyncEngineApi {
 ### Phase 4: CRDT Migration (6-12 months)
 
 **Goals:**
+
 - Backend support for Yjs
 - Migrate reconciliation engine to CRDT
 - Real-time collaboration features
 
 **Deliverables:**
+
 - Deterministic merge for simultaneous edits
 - Offline collaboration support
 - Yjs integration with OnlyOffice
@@ -797,11 +819,13 @@ impl TwakeSyncApiServer for SyncEngineApi {
 Need a desktop shell to host Twake web apps and a sync engine for VFS/reconciliation. Multiple technology options available.
 
 **Decision:**
+
 - Shell: CEF (C++) for web rendering
 - Sync Engine: Rust for VFS, reconciliation, network
 - Communication: JSON-RPC over Unix socket / named pipe
 
 **Rationale:**
+
 1. CEF provides Chromium rendering (identical to Chrome)
 2. No Node.js exposure (security)
 3. Rust provides memory safety and performance for sync engine
@@ -809,12 +833,14 @@ Need a desktop shell to host Twake web apps and a sync engine for VFS/reconcilia
 5. Clear separation of concerns (UI vs. business logic)
 
 **Consequences:**
+
 - C++ required for shell (500-1000 lines, manageable)
 - IPC adds complexity but enables isolation
 - Build system more complex (CMake + Cargo)
 - Team needs C++ skills (already available)
 
 **Alternatives considered:**
+
 - Electron: Too heavy, Node.js security surface
 - Tauri: WebView system rendering variations
 - CEF + Go: Bindings immature
@@ -822,6 +848,6 @@ Need a desktop shell to host Twake web apps and a sync engine for VFS/reconcilia
 
 ---
 
-*Document version: 4.0*  
-*Last updated: 2026-03-25*  
-*Status: Final — Ready for development*
+_Document version: 4.0_  
+_Last updated: 2026-03-25_  
+_Status: Final — Ready for development_

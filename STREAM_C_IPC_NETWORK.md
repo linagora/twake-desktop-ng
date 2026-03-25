@@ -11,6 +11,7 @@
 ### Matin (08:00 - 10:00) — Setup Cargo
 
 **Tâche C1.1: Ajouter dépendances au projet**
+
 ```bash
 # Dans sync-engine/Cargo.toml (déjà créé par Stream B)
 # Ajouter:
@@ -36,6 +37,7 @@ async-trait = "0.1"
 ```
 
 **Tâche C1.2: Module structure**
+
 ```
 sync-engine/
 ├── src/
@@ -65,6 +67,7 @@ sync-engine/
 ### Matin (10:00 - 12:00) — Contrat IPC (PRIORITAIRE)
 
 **Tâche C1.3: Définition des types partagés**
+
 ```rust
 // src/ipc/contract.rs
 use serde::{Deserialize, Serialize};
@@ -79,11 +82,11 @@ pub trait TwakeSyncApi {
     /// Get file status (state, size, modified time)
     #[method(name = "file.status")]
     async fn file_status(&self, path: String) -> RpcResult<FileStatus>;
-    
+
     /// Hydrate a ghost file (download content)
     #[method(name = "file.hydrate")]
     async fn file_hydrate(&self, path: String) -> RpcResult<bool>;
-    
+
     /// List directory contents
     #[method(name = "file.list")]
     async fn file_list(
@@ -91,11 +94,11 @@ pub trait TwakeSyncApi {
         path: String,
         recursive: Option<bool>,
     ) -> RpcResult<Vec<FileNode>>;
-    
+
     /// Subscribe to events
     #[subscription(name = "events.subscribe", item = TwakeEvent)]
     async fn subscribe_events(&self) -> SubscriptionResult;
-    
+
     /// Emit an event (from WebView)
     #[method(name = "events.emit")]
     async fn emit_event(&self, event: String, data: String) -> RpcResult<()>;
@@ -133,6 +136,7 @@ pub enum TwakeEvent {
 ```
 
 **Tâche C1.4: Exemple de requête/réponse**
+
 ```rust
 // src/ipc/examples.rs
 /// Example: How to call the IPC server from C++
@@ -190,12 +194,13 @@ pub enum TwakeEvent {
 ```
 
 **Tâche C1.5: Validation du contrat**
+
 ```rust
 // src/ipc/tests.rs
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_file_status_serialization() {
         let status = FileStatus {
@@ -204,18 +209,18 @@ mod tests {
             size: 1024,
             modified: "2026-03-25T10:00:00Z".to_string(),
         };
-        
+
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("ghost"));
     }
-    
+
     #[test]
     fn test_event_serialization() {
         let event = TwakeEvent::FileChanged {
             path: "/test.txt".to_string(),
             state: FileState::Hydrated,
         };
-        
+
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("file_changed"));
     }
@@ -229,6 +234,7 @@ mod tests {
 ### Après-midi (14:00 - 16:00) — IPC Server
 
 **Tâche C1.6: Server setup**
+
 ```rust
 // src/ipc/server.rs
 use std::net::SocketAddr;
@@ -257,12 +263,12 @@ impl TwakeSyncApiServer for SyncEngineApi {
             modified: "2026-03-25T10:00:00Z".to_string(),
         })
     }
-    
+
     async fn file_hydrate(&self, path: String) -> RpcResult<bool> {
         // Delegate to Stream B's hydration service
         Ok(true)
     }
-    
+
     async fn file_list(
         &self,
         path: String,
@@ -271,7 +277,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
         // Delegate to Stream B's VFS
         Ok(vec![])
     }
-    
+
     async fn subscribe_events(
         &self,
         subscription: jsonrpsee::server::SubscriptionSink,
@@ -279,7 +285,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
         // Subscribe to event bus
         Ok(())
     }
-    
+
     async fn emit_event(&self, event: String, data: String) -> RpcResult<()> {
         // Forward to event bus
         Ok(())
@@ -288,20 +294,21 @@ impl TwakeSyncApiServer for SyncEngineApi {
 
 pub async fn start_server(socket_path: &str) -> Result<ServerHandle, Box<dyn std::error::Error>> {
     info!("Starting IPC server on {}", socket_path);
-    
+
     let server = Server::builder()
         .build(socket_path)
         .await?;
-    
+
     let api = SyncEngineApi {};
     let handle = server.start(api.into_rpc());
-    
+
     info!("IPC server started");
     Ok(handle)
 }
 ```
 
 **Tâche C1.7: Unix socket server**
+
 ```rust
 // src/ipc/server.rs (continued)
 use jsonrpsee::server::ServerBuilder;
@@ -312,14 +319,14 @@ pub async fn start_unix_server(
 ) -> Result<ServerHandle, Box<dyn std::error::Error>> {
     // Remove existing socket
     let _ = std::fs::remove_file(socket_path);
-    
+
     let server = Server::builder()
         .build(socket_path)
         .await?;
-    
+
     let api = SyncEngineApi {};
     let handle = server.start(api.into_rpc());
-    
+
     Ok(handle)
 }
 ```
@@ -331,6 +338,7 @@ pub async fn start_unix_server(
 ### Après-midi (16:00 - 18:00) — Event Bus
 
 **Tâche C1.8: Event bus implementation**
+
 ```rust
 // src/events/bus.rs
 use tokio::sync::broadcast;
@@ -350,27 +358,27 @@ impl EventBus {
         let (tx, _rx) = broadcast::channel(EVENT_BUFFER_SIZE);
         Self { tx }
     }
-    
+
     pub async fn publish(&self, event: TwakeEvent) -> Result<(), broadcast::error::SendError<TwakeEvent>> {
         info!("Event published: {:?}", event);
         self.tx.send(event)?;
         Ok(())
     }
-    
+
     pub fn subscribe(&self) -> broadcast::Receiver<TwakeEvent> {
         self.tx.subscribe()
     }
-    
+
     pub async fn publish_file_changed(&self, path: String, state: crate::models::FileState) {
         let event = TwakeEvent::FileChanged { path, state };
         self.publish(event).await.ok();
     }
-    
+
     pub async fn publish_sync_started(&self, path: String) {
         let event = TwakeEvent::SyncStarted { path };
         self.publish(event).await.ok();
     }
-    
+
     pub async fn publish_sync_completed(&self, path: String, duration_ms: u64) {
         let event = TwakeEvent::SyncCompleted { path, duration_ms };
         self.publish(event).await.ok();
@@ -385,6 +393,7 @@ impl Default for EventBus {
 ```
 
 **Tâche C1.9: Event types**
+
 ```rust
 // src/events/types.rs
 use serde::{Deserialize, Serialize};
@@ -412,6 +421,7 @@ pub enum TwakeEvent {
 ```
 
 **Tâche C1.10: Event loop**
+
 ```rust
 // src/events/mod.rs
 pub mod bus;
@@ -442,6 +452,7 @@ pub async fn event_loop(
 ### Matin (08:00 - 10:00) — OIDC PKCE
 
 **Tâche C2.1: PKCE helpers**
+
 ```rust
 // src/auth/oidc.rs
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -457,16 +468,16 @@ pub fn generate_pkce_codes() -> PkceCodes {
     // Generate random code verifier
     let mut verifier = vec![0u8; 32];
     rand::thread_rng().fill_bytes(&mut verifier);
-    
+
     let code_verifier = URL_SAFE_NO_PAD.encode(&verifier);
-    
+
     // Generate code challenge (SHA256 of verifier)
     let mut hasher = Sha256::new();
     hasher.update(&verifier);
     let challenge = hasher.finalize();
-    
+
     let code_challenge = URL_SAFE_NO_PAD.encode(&challenge);
-    
+
     PkceCodes {
         code_verifier,
         code_challenge,
@@ -476,7 +487,7 @@ pub fn generate_pkce_codes() -> PkceCodes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_pkce_generation() {
         let codes = generate_pkce_codes();
@@ -487,6 +498,7 @@ mod tests {
 ```
 
 **Tâche C2.2: Token storage**
+
 ```rust
 // src/auth/token_storage.rs
 use serde::{Deserialize, Serialize};
@@ -512,27 +524,27 @@ impl TokenStorage {
     pub fn new() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let path = PathBuf::from(home).join(".twake").join("tokens.json");
-        
+
         // Create directory
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).ok();
         }
-        
+
         Self { path }
     }
-    
+
     pub fn save(&self, token: &TokenResponse) -> Result<(), Box<dyn std::error::Error>> {
         let json = serde_json::to_string_pretty(token)?;
         fs::write(&self.path, json)?;
         info!("Token saved to {:?}", self.path);
         Ok(())
     }
-    
+
     pub fn load(&self) -> Option<TokenResponse> {
         let json = fs::read_to_string(&self.path).ok()?;
         serde_json::from_str(&json).ok()
     }
-    
+
     pub fn is_valid(&self) -> bool {
         if let Some(token) = self.load() {
             let expires_at = Utc::now().timestamp() as u64 + token.expires_in;
@@ -551,6 +563,7 @@ impl TokenStorage {
 ### Matin (10:00 - 12:00) — HTTP Client
 
 **Tâche C2.3: Network client**
+
 ```rust
 // src/network/client.rs
 use reqwest::Client;
@@ -573,60 +586,61 @@ impl TwakeClient {
             token_storage: TokenStorage::new(),
         }
     }
-    
+
     pub async fn get_metadata(&self, path: &str) -> Result<serde_json::Value, reqwest::Error> {
         let url = format!("{}/api/v1/files{}", self.base_url, path);
-        
+
         let token = self.token_storage.load();
         let mut req = self.http.get(&url);
-        
+
         if let Some(ref t) = token {
             req = req.bearer_auth(&t.access_token);
         }
-        
+
         let response = req.send().await?;
         response.json().await
     }
-    
+
     pub async fn download_file(&self, path: &str, dest: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("{}/api/v1/files{}/content", self.base_url, path);
-        
+
         let token = self.token_storage.load();
         let mut req = self.http.get(&url);
-        
+
         if let Some(ref t) = token {
             req = req.bearer_auth(&t.access_token);
         }
-        
+
         let response = req.send().await?;
         let bytes = response.bytes().await?;
-        
+
         tokio::fs::write(dest, &bytes).await?;
         info!("Downloaded {} bytes to {:?}", bytes.len(), dest);
-        
+
         Ok(())
     }
 }
 ```
 
 **Tâche C2.4: Mock server (for testing)**
+
 ```rust
 // src/network/mock.rs
 #[cfg(test)]
 pub mod mock_server {
     use wiremock::{MockServer, Mock, ResponseTemplate};
     use wiremock::matchers::{method, path};
-    
+
     pub async fn start_mock_server() -> MockServer {
         let mock_server = MockServer::start().await;
-        
+
         Mock::given(method("GET"))
             .and(path("/api/v1/files/test.txt"))
             .respond_with(ResponseTemplate::new(200)
                 .set_body_string(r#"{"id": "123", "name": "test.txt", "size": 1024}"#))
             .mount(&mock_server)
             .await;
-        
+
         mock_server
     }
 }
@@ -639,6 +653,7 @@ pub mod mock_server {
 ### Après-midi (14:00 - 16:00) — Integration Handlers
 
 **Tâche C2.5: IPC handlers implementation**
+
 ```rust
 // src/ipc/handlers.rs
 use jsonrpsee::core::SubscriptionResult;
@@ -661,11 +676,11 @@ pub struct SyncEngineApi {
 impl TwakeSyncApiServer for SyncEngineApi {
     async fn file_status(&self, path: String) -> Result<FileStatus, ErrorObject<'_>> {
         info!("file.status called: {}", path);
-        
+
         let node = self.vfs.get_node(std::path::Path::new(&path))
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
-        
+
         Ok(FileStatus {
             path: node.path,
             state: node.state,
@@ -673,41 +688,41 @@ impl TwakeSyncApiServer for SyncEngineApi {
             modified: node.modified.to_rfc3339(),
         })
     }
-    
+
     async fn file_hydrate(&self, path: String) -> Result<bool, ErrorObject<'_>> {
         info!("file.hydrate called: {}", path);
-        
+
         self.event_bus.publish_sync_started(path.clone()).await;
-        
+
         self.hydration.hydrate_file(std::path::Path::new(&path))
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
-        
+
         self.event_bus.publish_file_changed(path, FileState::Hydrated).await;
-        
+
         Ok(true)
     }
-    
+
     async fn file_list(
         &self,
         path: String,
         recursive: Option<bool>,
     ) -> Result<Vec<FileNode>, ErrorObject<'_>> {
         info!("file.list called: {}, recursive: {:?}", path, recursive);
-        
+
         let nodes = self.vfs.list_dir(std::path::Path::new(&path))
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
-        
+
         Ok(nodes)
     }
-    
+
     async fn subscribe_events(
         &self,
         mut subscription: jsonrpsee::server::SubscriptionSink,
     ) -> SubscriptionResult {
         let mut rx = self.event_bus.subscribe();
-        
+
         tokio::spawn(async move {
             while let Ok(event) = rx.recv().await {
                 if subscription.send(&event).await.is_err() {
@@ -715,13 +730,13 @@ impl TwakeSyncApiServer for SyncEngineApi {
                 }
             }
         });
-        
+
         Ok(())
     }
-    
+
     async fn emit_event(&self, event: String, data: String) -> Result<(), ErrorObject<'_>> {
         info!("events.emit called: {} {}", event, data);
-        
+
         // Parse and forward to event bus
         // For MVP, just log
         Ok(())
@@ -736,6 +751,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 ### Après-midi (16:00 - 18:00) — Main et Demo
 
 **Tâche C2.6: Main binary**
+
 ```rust
 // src/bin/twake-sync.rs
 use std::path::PathBuf;
@@ -753,7 +769,7 @@ use twake_sync::db::repository::FileRepository;
 struct Args {
     #[arg(short, long, default_value = "/tmp/twake-ipc.sock")]
     socket: String,
-    
+
     #[arg(short, long, default_value = "sqlite:twake.db")]
     database: String,
 }
@@ -761,37 +777,38 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    
+
     tracing_subscriber::fmt::init();
-    
+
     // Initialize components
     let vfs = Box::new(InMemoryVfs::new());
     let repo = FileRepository::new(&args.database).await?;
     let hydration = HydrationService::new(vfs.clone(), repo);
     let event_bus = EventBus::new();
-    
+
     let api = SyncEngineApi {
         vfs,
         hydration,
         event_bus,
     };
-    
+
     // Start IPC server
     let handle = start_unix_server(&args.socket).await?;
-    
+
     info!("Sync engine running, press Ctrl+C to stop");
-    
+
     // Keep running
     tokio::signal::ctrl_c().await?;
-    
+
     info!("Shutting down...");
     handle.stop()?;
-    
+
     Ok(())
 }
 ```
 
 **Tâche C2.7: Test client**
+
 ```rust
 // src/bin/test-ipc.rs
 use jsonrpsee::http_client::HttpClientBuilder;
@@ -800,19 +817,20 @@ use jsonrpsee::http_client::HttpClientBuilder;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = HttpClientBuilder::default()
         .build("http://localhost")?;
-    
+
     // Test file.status
     let status: serde_json::Value = client
         .request("file.status", rpc_params!{"/test.txt"})
         .await?;
-    
+
     println!("Status: {:?}", status);
-    
+
     Ok(())
 }
 ```
 
 **Tâche C2.8: Demo script**
+
 ```bash
 #!/bin/bash
 # test-ipc.sh
