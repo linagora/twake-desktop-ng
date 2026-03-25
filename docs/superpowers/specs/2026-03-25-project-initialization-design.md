@@ -124,13 +124,33 @@ cargo new sync-engine --lib
 cd sync-engine
 
 # Ajouter dépendances
-cargo add tokio serde serde_json uuid thiserror async-trait jsonrpsee
+cargo add tokio serde serde_json uuid thiserror async-trait jsonrpsee time tracing tracing-subscriber
 
 # Créer modules
 mkdir -p src/models src/ipc src/events
 touch src/models/{mod.rs,file_node.rs,file_state.rs}
 touch src/ipc/{mod.rs,contract.rs}
 touch src/events/{mod.rs,types.rs,bus.rs}
+```
+
+**Stream A (parallèle) :**
+```bash
+# Créer structure C++
+mkdir -p cef-shell/src/{app,browser,ipc}
+touch cef-shell/CMakeLists.txt
+
+# Télécharger CEF binaries
+wget https://cef-builds.spotifycdn.com/cef_binary_122.1.11+g5c8b4c2+chromium-122.0.6261.111_linux64.tar.bz2
+tar -xjf cef_binary_*.tar.bz2
+mv cef_binary_* cef-shell/cef/
+```
+
+**Stream B (parallèle) :**
+```bash
+# Review les modèles proposés, proposer ajustements
+# Préparer VFS trait definition
+mkdir -p sync-engine/src/vfs
+touch sync-engine/src/vfs/{mod.rs,vfs_trait.rs}
 ```
 
 **Types partagés (src/models/) :**
@@ -142,12 +162,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FileState {
-    Ghost,
-    Hydrated,
-    Modified,
-    Syncing,
-    Conflict,
-    Error,
+    Ghost,        // Metadata only, not downloaded
+    Hydrated,     // Content on disk, in sync
+    Modified,     // Local changes pending sync
+    Syncing,      // In progress
+    Synced,       // Synced to remote (final state after sync)
+    Conflict,     // Conflict detected
+    Error,        // Sync error
 }
 ```
 
@@ -174,10 +195,20 @@ pub struct FileNode {
 **Contract IPC (src/ipc/contract.rs) :**
 
 ```rust
-use jsonrpsee::core::SubscriptionResult;
+use jsonrpsee::core::{RpcResult, SubscriptionResult};
 use jsonrpsee::proc_macros::rpc;
+use serde::{Deserialize, Serialize};
 
 use crate::models::{FileNode, FileState};
+
+/// File status returned by file.status (simplified for IPC)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileStatus {
+    pub path: String,
+    pub state: FileState,
+    pub size: u64,
+    pub modified: String,  // ISO 8601 timestamp
+}
 
 #[rpc(server, client)]
 pub trait TwakeSyncApi {
@@ -218,18 +249,26 @@ pub trait TwakeSyncApi {
 ```rust
 // src/ipc/server.rs
 use jsonrpsee::server::Server;
+use jsonrpsee::core::{RpcResult, SubscriptionResult};
+use tracing::{info, error};
+use tokio::sync::broadcast;
+
 use crate::ipc::contract::{TwakeSyncApiServer, FileStatus};
 use crate::models::{FileNode, FileState};
 use crate::events::bus::EventBus;
 
 pub struct SyncEngineApi {
     event_bus: EventBus,
+    vfs: Option<Box<dyn VfsBackend>>,  // Will be connected on Day 3
 }
 
 #[jsonrpsee::core::async_trait]
 impl TwakeSyncApiServer for SyncEngineApi {
     async fn file_status(&self, path: String) -> RpcResult<FileStatus> {
-        // Dummy response for now
+        info!("file.status called: {}", path);
+        
+        // For Day 2: dummy response
+        // For Day 3: delegate to VFS
         Ok(FileStatus {
             path,
             state: FileState::Ghost,
@@ -239,6 +278,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
     }
 
     async fn file_hydrate(&self, path: String) -> RpcResult<bool> {
+        info!("file.hydrate called: {}", path);
         Ok(true)
     }
 
@@ -247,26 +287,47 @@ impl TwakeSyncApiServer for SyncEngineApi {
         path: String,
         recursive: Option<bool>,
     ) -> RpcResult<Vec<FileNode>> {
+        info!("file.list called: {}, recursive: {:?}", path, recursive);
         Ok(vec![])
     }
 
     async fn subscribe_events(
         &self,
-        subscription: jsonrpsee::server::SubscriptionSink,
+        mut subscription: jsonrpsee::server::SubscriptionSink,
     ) -> SubscriptionResult {
-        // Subscribe to event bus
+        info!("events.subscribe called");
+        
+        // Subscribe to event bus and forward events
+        let mut rx = self.event_bus.subscribe();
+        
+        tokio::spawn(async move {
+            while let Ok(event) = rx.recv().await {
+                if subscription.send(event).await.is_err() {
+                    break;
+                }
+            }
+        });
+        
         Ok(())
     }
 
     async fn emit_event(&self, event: String, data: String) -> RpcResult<()> {
+        info!("events.emit called: {} {}", event, data);
         Ok(())
     }
 }
 
 pub async fn start_server(socket_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Remove existing socket
+    let _ = std::fs::remove_file(socket_path);
+    
     let server = Server::builder().build(socket_path).await?;
-    let api = SyncEngineApi { event_bus: EventBus::new() };
+    let api = SyncEngineApi { 
+        event_bus: EventBus::new(),
+        vfs: None,
+    };
     let _handle = server.start(api.into_rpc());
+    info!("IPC server started on {}", socket_path);
     Ok(())
 }
 ```
@@ -333,10 +394,15 @@ cd cef-shell
 ```
 
 **Checklist J3 (17:00) :**
-- [ ] `cargo build` passe
+- [ ] `cargo build` passe sans warnings
 - [ ] IPC server répond aux requêtes
 - [ ] IPC client C++ reçoit réponse
-- [ ] E2E test passe sans crash
+- [ ] E2E test passe avec sortie attendue :
+  ```bash
+  curl ... file.status /test.txt
+  # Expected: {"jsonrpc":"2.0","result":{"path":"/test.txt","state":"ghost",...},"id":1}
+  ```
+- [ ] Latence E2E < 100ms
 - [ ] Contrat IPC validé par tous
 - [ ] Go pour développement parallèle J4+
 
