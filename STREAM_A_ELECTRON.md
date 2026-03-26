@@ -64,32 +64,36 @@ electron-shell/
 
 ```typescript
 // src/protocol.ts
-import { protocol, net } from 'electron';
-import path from 'path';
-import { pathToFileURL } from 'url';
+import { protocol, net } from "electron";
+import path from "path";
+import { pathToFileURL } from "url";
 
 export function registerTwakeProtocol() {
-  protocol.handle('twake', (request) => {
+  protocol.handle("twake", (request) => {
     const url = new URL(request.url);
-    if (url.hostname !== 'bundle') {
-      return new Response('Not found', { status: 404 });
+    if (url.hostname !== "bundle") {
+      return new Response("Not found", { status: 404 });
     }
 
     let filePath = decodeURIComponent(url.pathname);
-    if (filePath === '/' || filePath === '') filePath = '/index.html';
+    if (filePath === "/" || filePath === "") filePath = "/index.html";
 
-    const bundleDir = path.resolve(path.join(__dirname, '..', 'renderer'));
-    const resolved = path.resolve(path.join(bundleDir, filePath.replace(/^\//, '')));
+    const bundleDir = path.resolve(path.join(__dirname, "..", "renderer"));
+    const resolved = path.resolve(
+      path.join(bundleDir, filePath.replace(/^\//, "")),
+    );
 
     // Securite : pas de path traversal
     if (!resolved.startsWith(bundleDir)) {
-      return new Response('Forbidden', { status: 403 });
+      return new Response("Forbidden", { status: 403 });
     }
 
-    return net.fetch(pathToFileURL(resolved).toString()).then(res => {
+    return net.fetch(pathToFileURL(resolved).toString()).then((res) => {
       const headers = new Headers(res.headers);
-      headers.set('Content-Security-Policy',
-        "default-src 'self' twake:; script-src 'self' twake:; style-src 'self' twake: 'unsafe-inline'; connect-src https: wss: twake:; img-src 'self' twake: https: data:");
+      headers.set(
+        "Content-Security-Policy",
+        "default-src 'self' twake:; script-src 'self' twake:; style-src 'self' twake: 'unsafe-inline'; connect-src https: wss: twake:; img-src 'self' twake: https: data:",
+      );
       return new Response(res.body, { status: res.status, headers });
     });
   });
@@ -102,84 +106,90 @@ export function registerTwakeProtocol() {
 <!-- renderer/index.html -->
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Twake Desktop</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <div id="app">
-    <h1>Twake Desktop</h1>
-    <div id="auth-section">
-      <p id="auth-status">Not authenticated</p>
-      <input type="text" id="server-url" placeholder="https://twake.company.com" />
-      <button id="login-btn">Login with OIDC</button>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Twake Desktop</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <h1>Twake Desktop</h1>
+      <div id="auth-section">
+        <p id="auth-status">Not authenticated</p>
+        <input
+          type="text"
+          id="server-url"
+          placeholder="https://twake.company.com"
+        />
+        <button id="login-btn">Login with OIDC</button>
+      </div>
+      <div id="token-info" style="display:none">
+        <p>Token: <code id="token-value">-</code></p>
+        <p>Expires in: <span id="token-expiry">-</span>s</p>
+      </div>
+      <div id="bridge-test" style="display:none">
+        <h2>Bridge Test</h2>
+        <button id="test-status">Get File Status</button>
+        <button id="test-list">List Files</button>
+        <pre id="bridge-output"></pre>
+      </div>
     </div>
-    <div id="token-info" style="display:none">
-      <p>Token: <code id="token-value">-</code></p>
-      <p>Expires in: <span id="token-expiry">-</span>s</p>
-    </div>
-    <div id="bridge-test" style="display:none">
-      <h2>Bridge Test</h2>
-      <button id="test-status">Get File Status</button>
-      <button id="test-list">List Files</button>
-      <pre id="bridge-output"></pre>
-    </div>
-  </div>
-  <script src="app.js"></script>
-</body>
+    <script src="app.js"></script>
+  </body>
 </html>
 ```
 
 ```javascript
 // renderer/app.js
-document.addEventListener('DOMContentLoaded', () => {
-  const loginBtn = document.getElementById('login-btn');
-  const authStatus = document.getElementById('auth-status');
-  const tokenInfo = document.getElementById('token-info');
-  const bridgeTest = document.getElementById('bridge-test');
-  const output = document.getElementById('bridge-output');
+document.addEventListener("DOMContentLoaded", () => {
+  const loginBtn = document.getElementById("login-btn");
+  const authStatus = document.getElementById("auth-status");
+  const tokenInfo = document.getElementById("token-info");
+  const bridgeTest = document.getElementById("bridge-test");
+  const output = document.getElementById("bridge-output");
 
   // Check if bridge is available
   if (window.__twake) {
-    authStatus.textContent = 'Bridge loaded. Ready to authenticate.';
+    authStatus.textContent = "Bridge loaded. Ready to authenticate.";
   } else {
-    authStatus.textContent = 'ERROR: window.__twake not available';
+    authStatus.textContent = "ERROR: window.__twake not available";
     return;
   }
 
   // Login
-  loginBtn.addEventListener('click', async () => {
+  loginBtn.addEventListener("click", async () => {
     try {
-      authStatus.textContent = 'Authenticating...';
+      authStatus.textContent = "Authenticating...";
       const token = await window.__twake.startAuth();
-      authStatus.textContent = 'Authenticated!';
-      document.getElementById('token-value').textContent =
-        token.access_token.substring(0, 20) + '...';
-      document.getElementById('token-expiry').textContent = token.expires_in;
-      tokenInfo.style.display = 'block';
-      bridgeTest.style.display = 'block';
+      authStatus.textContent = "Authenticated!";
+      document.getElementById("token-value").textContent =
+        token.access_token.substring(0, 20) + "...";
+      document.getElementById("token-expiry").textContent = token.expires_in;
+      tokenInfo.style.display = "block";
+      bridgeTest.style.display = "block";
     } catch (err) {
-      authStatus.textContent = 'Auth failed: ' + err.message;
+      authStatus.textContent = "Auth failed: " + err.message;
     }
   });
 
   // Bridge tests
-  document.getElementById('test-status')?.addEventListener('click', async () => {
-    try {
-      const status = await window.__twake.getFileStatus('/test.txt');
-      output.textContent = JSON.stringify(status, null, 2);
-    } catch (err) {
-      output.textContent = 'Error: ' + err.message;
-    }
-  });
+  document
+    .getElementById("test-status")
+    ?.addEventListener("click", async () => {
+      try {
+        const status = await window.__twake.getFileStatus("/test.txt");
+        output.textContent = JSON.stringify(status, null, 2);
+      } catch (err) {
+        output.textContent = "Error: " + err.message;
+      }
+    });
 
-  document.getElementById('test-list')?.addEventListener('click', async () => {
+  document.getElementById("test-list")?.addEventListener("click", async () => {
     try {
-      const files = await window.__twake.listFiles('/', false);
+      const files = await window.__twake.listFiles("/", false);
       output.textContent = JSON.stringify(files, null, 2);
     } catch (err) {
-      output.textContent = 'Error: ' + err.message;
+      output.textContent = "Error: " + err.message;
     }
   });
 });
@@ -195,37 +205,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
 ```typescript
 // src/preload.ts
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from "electron";
 
-contextBridge.exposeInMainWorld('__twake', {
+contextBridge.exposeInMainWorld("__twake", {
   // File operations
   getFileStatus(path: string) {
-    if (typeof path !== 'string') throw new TypeError('path must be string');
-    return ipcRenderer.invoke('twake:file:status', path);
+    if (typeof path !== "string") throw new TypeError("path must be string");
+    return ipcRenderer.invoke("twake:file:status", path);
   },
 
   hydrateFile(path: string) {
-    if (typeof path !== 'string') throw new TypeError('path must be string');
-    return ipcRenderer.invoke('twake:file:hydrate', path);
+    if (typeof path !== "string") throw new TypeError("path must be string");
+    return ipcRenderer.invoke("twake:file:hydrate", path);
   },
 
   listFiles(path: string, recursive = false) {
-    if (typeof path !== 'string') throw new TypeError('path must be string');
-    return ipcRenderer.invoke('twake:file:list', path, recursive);
+    if (typeof path !== "string") throw new TypeError("path must be string");
+    return ipcRenderer.invoke("twake:file:list", path, recursive);
   },
 
   // Auth
   getToken() {
-    return ipcRenderer.invoke('twake:auth:token');
+    return ipcRenderer.invoke("twake:auth:token");
   },
 
   startAuth() {
-    return ipcRenderer.invoke('twake:auth:start');
+    return ipcRenderer.invoke("twake:auth:start");
   },
 
   // Events
   on(event: string, callback: (...args: any[]) => void) {
-    if (typeof event !== 'string') throw new TypeError('event must be string');
+    if (typeof event !== "string") throw new TypeError("event must be string");
     const channel = `twake:event:${event}`;
     const listener = (_event: any, ...args: any[]) => callback(...args);
     ipcRenderer.on(channel, listener);
@@ -238,10 +248,10 @@ contextBridge.exposeInMainWorld('__twake', {
 
 ```typescript
 // src/main.ts
-import { app, BrowserWindow } from 'electron';
-import path from 'path';
-import { registerTwakeProtocol } from './protocol';
-import { setupIpcHandlers } from './ipc-bridge';
+import { app, BrowserWindow } from "electron";
+import path from "path";
+import { registerTwakeProtocol } from "./protocol";
+import { setupIpcHandlers } from "./ipc-bridge";
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -258,26 +268,26 @@ app.whenReady().then(() => {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
-  win.once('ready-to-show', () => win.show());
-  win.loadURL('twake://bundle/index.html');
+  win.once("ready-to-show", () => win.show());
+  win.loadURL("twake://bundle/index.html");
 
   // Security: restrict navigation
-  win.webContents.on('will-navigate', (event, url) => {
+  win.webContents.on("will-navigate", (event, url) => {
     const parsed = new URL(url);
-    if (!['twake:', 'https:'].includes(parsed.protocol)) {
+    if (!["twake:", "https:"].includes(parsed.protocol)) {
       event.preventDefault();
     }
   });
 
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
 });
 ```
 
@@ -291,44 +301,59 @@ app.on('window-all-closed', () => {
 
 ```typescript
 // src/ipc-bridge.ts
-import { ipcMain } from 'electron';
+import { ipcMain } from "electron";
 
 export function setupIpcHandlers() {
   // Mock handlers for Day 1 (no Rust sidecar yet)
-  ipcMain.handle('twake:file:status', async (_event, path: string) => {
-    console.log('[IPC] file.status:', path);
+  ipcMain.handle("twake:file:status", async (_event, path: string) => {
+    console.log("[IPC] file.status:", path);
     return {
       path,
-      state: 'ghost',
+      state: "ghost",
       size: 1024,
       modified: new Date().toISOString(),
     };
   });
 
-  ipcMain.handle('twake:file:hydrate', async (_event, path: string) => {
-    console.log('[IPC] file.hydrate:', path);
+  ipcMain.handle("twake:file:hydrate", async (_event, path: string) => {
+    console.log("[IPC] file.hydrate:", path);
     return { success: true };
   });
 
-  ipcMain.handle('twake:file:list', async (_event, path: string, recursive: boolean) => {
-    console.log('[IPC] file.list:', path, recursive);
-    return [
-      { id: '1', path: '/documents/test.txt', state: 'ghost', size: 1024, is_dir: false },
-      { id: '2', path: '/documents/photo.jpg', state: 'ghost', size: 102400, is_dir: false },
-      { id: '3', path: '/shared', state: 'ghost', size: 0, is_dir: true },
-    ];
-  });
+  ipcMain.handle(
+    "twake:file:list",
+    async (_event, path: string, recursive: boolean) => {
+      console.log("[IPC] file.list:", path, recursive);
+      return [
+        {
+          id: "1",
+          path: "/documents/test.txt",
+          state: "ghost",
+          size: 1024,
+          is_dir: false,
+        },
+        {
+          id: "2",
+          path: "/documents/photo.jpg",
+          state: "ghost",
+          size: 102400,
+          is_dir: false,
+        },
+        { id: "3", path: "/shared", state: "ghost", size: 0, is_dir: true },
+      ];
+    },
+  );
 
-  ipcMain.handle('twake:auth:token', async () => {
-    console.log('[IPC] auth.token');
+  ipcMain.handle("twake:auth:token", async () => {
+    console.log("[IPC] auth.token");
     return null; // Not authenticated yet
   });
 
-  ipcMain.handle('twake:auth:start', async () => {
-    console.log('[IPC] auth.start');
+  ipcMain.handle("twake:auth:start", async () => {
+    console.log("[IPC] auth.start");
     // Mock auth for Day 1
     return {
-      access_token: 'mock_token_' + Date.now(),
+      access_token: "mock_token_" + Date.now(),
       expires_in: 3600,
     };
   });
@@ -347,12 +372,12 @@ export function setupIpcHandlers() {
 
 ```typescript
 // src/auth.ts
-import { BrowserWindow, safeStorage } from 'electron';
-import { createServer } from 'http';
-import { randomBytes, createHash } from 'crypto';
-import path from 'path';
-import fs from 'fs';
-import { app } from 'electron';
+import { BrowserWindow, safeStorage } from "electron";
+import { createServer } from "http";
+import { randomBytes, createHash } from "crypto";
+import path from "path";
+import fs from "fs";
+import { app } from "electron";
 
 export class AuthService {
   private token: any = null;
@@ -360,23 +385,27 @@ export class AuthService {
   private config: any = null;
 
   async configure(serverUrl: string) {
-    const res = await fetch(`${serverUrl}/.well-known/twake/desktop-configuration`);
+    const res = await fetch(
+      `${serverUrl}/.well-known/twake/desktop-configuration`,
+    );
     this.config = await res.json();
   }
 
   async startInteractiveAuth(): Promise<any> {
-    if (!this.config) throw new Error('Not configured');
+    if (!this.config) throw new Error("Not configured");
 
-    const codeVerifier = randomBytes(32).toString('base64url');
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const codeVerifier = randomBytes(32).toString("base64url");
+    const codeChallenge = createHash("sha256")
+      .update(codeVerifier)
+      .digest("base64url");
 
     const { code, redirectUri } = await this.openAuthWindow(codeChallenge);
 
     const tokenRes = await fetch(`${this.config.sso_url}/oauth2/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: 'authorization_code',
+        grant_type: "authorization_code",
         client_id: this.config.client_id_interactive,
         code,
         redirect_uri: redirectUri,
@@ -403,52 +432,79 @@ export class AuthService {
     };
   }
 
-  private openAuthWindow(codeChallenge: string): Promise<{ code: string; redirectUri: string }> {
+  private openAuthWindow(
+    codeChallenge: string,
+  ): Promise<{ code: string; redirectUri: string }> {
     return new Promise((resolve, reject) => {
       const server = createServer((req, res) => {
-        const url = new URL(req.url!, 'http://127.0.0.1');
-        const code = url.searchParams.get('code');
+        const url = new URL(req.url!, "http://127.0.0.1");
+        const code = url.searchParams.get("code");
         if (code) {
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end('<h1>OK</h1><p>You can close this window.</p>');
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end("<h1>OK</h1><p>You can close this window.</p>");
           server.close();
-          resolve({ code, redirectUri: `http://127.0.0.1:${(server.address() as any).port}/callback` });
+          resolve({
+            code,
+            redirectUri: `http://127.0.0.1:${(server.address() as any).port}/callback`,
+          });
         }
       });
 
-      server.listen(0, '127.0.0.1', () => {
+      server.listen(0, "127.0.0.1", () => {
         const port = (server.address() as any).port;
         const authUrl = new URL(`${this.config.sso_url}/oauth2/auth`);
-        authUrl.searchParams.set('client_id', this.config.client_id_interactive);
-        authUrl.searchParams.set('response_type', 'code');
-        authUrl.searchParams.set('redirect_uri', `http://127.0.0.1:${port}/callback`);
-        authUrl.searchParams.set('scope', (this.config.scopes || []).join(' '));
-        authUrl.searchParams.set('code_challenge', codeChallenge);
-        authUrl.searchParams.set('code_challenge_method', 'S256');
+        authUrl.searchParams.set(
+          "client_id",
+          this.config.client_id_interactive,
+        );
+        authUrl.searchParams.set("response_type", "code");
+        authUrl.searchParams.set(
+          "redirect_uri",
+          `http://127.0.0.1:${port}/callback`,
+        );
+        authUrl.searchParams.set("scope", (this.config.scopes || []).join(" "));
+        authUrl.searchParams.set("code_challenge", codeChallenge);
+        authUrl.searchParams.set("code_challenge_method", "S256");
 
-        const authWin = new BrowserWindow({ width: 500, height: 700,
-          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
+        const authWin = new BrowserWindow({
+          width: 500,
+          height: 700,
+          webPreferences: {
+            sandbox: true,
+            contextIsolation: true,
+            nodeIntegration: false,
+          },
         });
         authWin.loadURL(authUrl.toString());
-        authWin.on('closed', () => { server.close(); reject(new Error('Auth cancelled')); });
+        authWin.on("closed", () => {
+          server.close();
+          reject(new Error("Auth cancelled"));
+        });
       });
     });
   }
 
   private saveToken() {
     if (!this.token) return;
-    const data = JSON.stringify({ token: this.token, obtainedAt: this.tokenObtainedAt });
+    const data = JSON.stringify({
+      token: this.token,
+      obtainedAt: this.tokenObtainedAt,
+    });
     const encrypted = safeStorage.encryptString(data);
-    fs.writeFileSync(path.join(app.getPath('userData'), 'auth.enc'), encrypted);
+    fs.writeFileSync(path.join(app.getPath("userData"), "auth.enc"), encrypted);
   }
 
   private loadToken() {
     try {
-      const encrypted = fs.readFileSync(path.join(app.getPath('userData'), 'auth.enc'));
+      const encrypted = fs.readFileSync(
+        path.join(app.getPath("userData"), "auth.enc"),
+      );
       const data = JSON.parse(safeStorage.decryptString(encrypted));
       this.token = data.token;
       this.tokenObtainedAt = data.obtainedAt;
-    } catch { this.token = null; }
+    } catch {
+      this.token = null;
+    }
   }
 }
 ```
@@ -457,36 +513,45 @@ export class AuthService {
 
 ```typescript
 // src/ipc-bridge.ts (updated)
-import { ipcMain, BrowserWindow } from 'electron';
-import { AuthService } from './auth';
-import { SidecarManager } from './sidecar';
+import { ipcMain, BrowserWindow } from "electron";
+import { AuthService } from "./auth";
+import { SidecarManager } from "./sidecar";
 
 export function setupIpcHandlers(auth?: AuthService, sidecar?: SidecarManager) {
-  ipcMain.handle('twake:auth:start', async () => {
-    if (!auth) return { error: 'Auth not configured' };
+  ipcMain.handle("twake:auth:start", async () => {
+    if (!auth) return { error: "Auth not configured" };
     return auth.startInteractiveAuth();
   });
 
-  ipcMain.handle('twake:auth:token', async () => {
+  ipcMain.handle("twake:auth:token", async () => {
     if (!auth) return null;
     return auth.getToken();
   });
 
   // File ops: delegate to sidecar if available, mock otherwise
-  ipcMain.handle('twake:file:status', async (_event, filePath: string) => {
-    if (sidecar) return sidecar.call('file.status', { path: filePath });
-    return { path: filePath, state: 'ghost', size: 0, modified: new Date().toISOString() };
+  ipcMain.handle("twake:file:status", async (_event, filePath: string) => {
+    if (sidecar) return sidecar.call("file.status", { path: filePath });
+    return {
+      path: filePath,
+      state: "ghost",
+      size: 0,
+      modified: new Date().toISOString(),
+    };
   });
 
-  ipcMain.handle('twake:file:hydrate', async (_event, filePath: string) => {
-    if (sidecar) return sidecar.call('file.hydrate', { path: filePath });
+  ipcMain.handle("twake:file:hydrate", async (_event, filePath: string) => {
+    if (sidecar) return sidecar.call("file.hydrate", { path: filePath });
     return { success: true };
   });
 
-  ipcMain.handle('twake:file:list', async (_event, filePath: string, recursive: boolean) => {
-    if (sidecar) return sidecar.call('file.list', { path: filePath, recursive });
-    return [];
-  });
+  ipcMain.handle(
+    "twake:file:list",
+    async (_event, filePath: string, recursive: boolean) => {
+      if (sidecar)
+        return sidecar.call("file.list", { path: filePath, recursive });
+      return [];
+    },
+  );
 
   // Forward sidecar events to renderers
   if (sidecar) {
@@ -509,10 +574,10 @@ export function setupIpcHandlers(auth?: AuthService, sidecar?: SidecarManager) {
 
 ```typescript
 // src/sidecar.ts
-import { spawn, ChildProcess } from 'child_process';
-import { createConnection, Socket } from 'net';
-import { app } from 'electron';
-import path from 'path';
+import { spawn, ChildProcess } from "child_process";
+import { createConnection, Socket } from "net";
+import { app } from "electron";
+import path from "path";
 
 export class SidecarManager {
   private process: ChildProcess | null = null;
@@ -523,20 +588,28 @@ export class SidecarManager {
   private eventListeners: Array<(event: string, data: any) => void> = [];
 
   constructor() {
-    this.socketPath = path.join(app.getPath('userData'), 'twake-ipc.sock');
+    this.socketPath = path.join(app.getPath("userData"), "twake-ipc.sock");
   }
 
   async start() {
-    const bin = process.platform === 'win32' ? 'twake-sync.exe' : 'twake-sync';
+    const bin = process.platform === "win32" ? "twake-sync.exe" : "twake-sync";
     const binPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'bin', bin)
-      : path.join(__dirname, '..', '..', 'sync-engine', 'target', 'release', bin);
+      ? path.join(process.resourcesPath, "bin", bin)
+      : path.join(
+          __dirname,
+          "..",
+          "..",
+          "sync-engine",
+          "target",
+          "release",
+          bin,
+        );
 
-    this.process = spawn(binPath, ['--socket', this.socketPath], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    this.process = spawn(binPath, ["--socket", this.socketPath], {
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
-    this.process.on('exit', (code) => {
+    this.process.on("exit", (code) => {
       if (code !== 0) setTimeout(() => this.start(), 2000);
     });
 
@@ -546,7 +619,7 @@ export class SidecarManager {
 
   async call(method: string, params: Record<string, unknown>) {
     const id = ++this.requestId;
-    const msg = JSON.stringify({ jsonrpc: '2.0', method, params, id }) + '\n';
+    const msg = JSON.stringify({ jsonrpc: "2.0", method, params, id }) + "\n";
 
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -564,23 +637,28 @@ export class SidecarManager {
     this.eventListeners.push(listener);
   }
 
-  stop() { this.socket?.destroy(); this.process?.kill(); }
+  stop() {
+    this.socket?.destroy();
+    this.process?.kill();
+  }
 
   private connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.socket = createConnection(this.socketPath);
-      let buffer = '';
-      this.socket.on('data', (chunk) => {
+      let buffer = "";
+      this.socket.on("data", (chunk) => {
         buffer += chunk.toString();
-        const lines = buffer.split('\n');
+        const lines = buffer.split("\n");
         buffer = lines.pop()!;
         for (const line of lines) {
           if (!line.trim()) continue;
-          try { this.handleMessage(JSON.parse(line)); } catch {}
+          try {
+            this.handleMessage(JSON.parse(line));
+          } catch {}
         }
       });
-      this.socket.once('connect', resolve);
-      this.socket.once('error', reject);
+      this.socket.once("connect", resolve);
+      this.socket.once("error", reject);
     });
   }
 
@@ -599,8 +677,11 @@ export class SidecarManager {
     return new Promise((resolve) => {
       const check = () => {
         const s = createConnection(this.socketPath);
-        s.once('connect', () => { s.destroy(); resolve(); });
-        s.once('error', () => setTimeout(check, 100));
+        s.once("connect", () => {
+          s.destroy();
+          resolve();
+        });
+        s.once("error", () => setTimeout(check, 100));
       };
       setTimeout(check, 200);
     });
@@ -618,22 +699,29 @@ export class SidecarManager {
 
 ```typescript
 // src/tray.ts
-import { Tray, Menu, nativeImage, app } from 'electron';
-import path from 'path';
+import { Tray, Menu, nativeImage, app } from "electron";
+import path from "path";
 
 export function createTray(): Tray {
   const icon = nativeImage.createFromPath(
-    path.join(__dirname, '..', 'resources', 'icon.png')
+    path.join(__dirname, "..", "resources", "icon.png"),
   );
   const tray = new Tray(icon);
 
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open Twake', click: () => { /* focus main window */ } },
-    { type: 'separator' },
-    { label: 'Quit', click: () => app.quit() },
-  ]));
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Open Twake",
+        click: () => {
+          /* focus main window */
+        },
+      },
+      { type: "separator" },
+      { label: "Quit", click: () => app.quit() },
+    ]),
+  );
 
-  tray.setToolTip('Twake Desktop');
+  tray.setToolTip("Twake Desktop");
   return tray;
 }
 ```
@@ -642,13 +730,13 @@ export function createTray(): Tray {
 
 ```typescript
 // src/main.ts (final)
-import { app, BrowserWindow } from 'electron';
-import path from 'path';
-import { registerTwakeProtocol } from './protocol';
-import { setupIpcHandlers } from './ipc-bridge';
-import { AuthService } from './auth';
-import { SidecarManager } from './sidecar';
-import { createTray } from './tray';
+import { app, BrowserWindow } from "electron";
+import path from "path";
+import { registerTwakeProtocol } from "./protocol";
+import { setupIpcHandlers } from "./ipc-bridge";
+import { AuthService } from "./auth";
+import { SidecarManager } from "./sidecar";
+import { createTray } from "./tray";
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -663,28 +751,30 @@ app.whenReady().then(async () => {
     sidecar = new SidecarManager();
     await sidecar.start();
   } catch (err) {
-    console.warn('Sidecar not available, running with mocks:', err);
+    console.warn("Sidecar not available, running with mocks:", err);
   }
 
   setupIpcHandlers(auth, sidecar);
   createTray();
 
   const win = new BrowserWindow({
-    width: 1200, height: 800, show: false,
+    width: 1200,
+    height: 800,
+    show: false,
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
-  win.once('ready-to-show', () => win.show());
-  win.loadURL('twake://bundle/index.html');
+  win.once("ready-to-show", () => win.show());
+  win.loadURL("twake://bundle/index.html");
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
 });
 ```
 

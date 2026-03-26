@@ -105,14 +105,14 @@
 
 ### Error Codes
 
-| Code   | Message                |
-| ------ | ---------------------- |
-| -32000 | File not found         |
-| -32001 | Permission denied      |
-| -32002 | Network error          |
-| -32003 | Authentication required|
-| -32600 | Invalid request        |
-| -32601 | Method not found       |
+| Code   | Message                 |
+| ------ | ----------------------- |
+| -32000 | File not found          |
+| -32001 | Permission denied       |
+| -32002 | Network error           |
+| -32003 | Authentication required |
+| -32600 | Invalid request         |
+| -32601 | Method not found        |
 
 ---
 
@@ -120,7 +120,7 @@
 
 ### FileNode (Rust ↔ TypeScript)
 
-> **Source de verite pour les types partages.** Les STREAM_*.md et les design specs
+> **Source de verite pour les types partages.** Les STREAM\_\*.md et les design specs
 > doivent s'aligner sur ces definitions. Le modele interne Rust utilise `Uuid` et
 > `OffsetDateTime` ; la serialisation JSON produit `String` et ISO 8601.
 
@@ -228,14 +228,14 @@ interface TwakeBridge {
 }
 
 // Usage
-const status = await window.__twake.getFileStatus('/documents/test.txt');
-console.log('State:', status.state); // "ghost" or "hydrated"
+const status = await window.__twake.getFileStatus("/documents/test.txt");
+console.log("State:", status.state); // "ghost" or "hydrated"
 
-await window.__twake.hydrateFile('/documents/test.txt');
-console.log('File downloaded!');
+await window.__twake.hydrateFile("/documents/test.txt");
+console.log("File downloaded!");
 
-const unsubscribe = window.__twake.on('file_changed', (data) => {
-  console.log('File changed:', data.path, data.state);
+const unsubscribe = window.__twake.on("file_changed", (data) => {
+  console.log("File changed:", data.path, data.state);
 });
 // Later: unsubscribe();
 ```
@@ -481,8 +481,8 @@ ls -la ~/TwakeSync/
 **Stream A (TypeScript):**
 
 ```typescript
-console.log('[electron:main] Bridge injected for window', windowId);
-console.error('[electron:sidecar] Connection failed:', error);
+console.log("[electron:main] Bridge injected for window", windowId);
+console.error("[electron:sidecar] Connection failed:", error);
 ```
 
 **Stream B/C (Rust):**

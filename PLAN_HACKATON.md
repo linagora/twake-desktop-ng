@@ -231,13 +231,13 @@
 
 ## Risques et Mitigations
 
-| Risque                   | Impact   | Mitigation                                   |
-| ------------------------ | -------- | -------------------------------------------- |
-| Electron setup echoue    | Low      | npm install est fiable, fallback: electron-quick-start |
-| Sidecar pas pret         | Medium   | Mock IPC handlers dans le main process       |
-| OIDC trop complexe       | Medium   | Mock auth (token hardcode)                   |
-| Protocol handler bugs    | Medium   | Fallback: loadFile() au lieu de twake://     |
-| Crash en demo            | Critical | Backup plan (screenshots/video)              |
+| Risque                | Impact   | Mitigation                                             |
+| --------------------- | -------- | ------------------------------------------------------ |
+| Electron setup echoue | Low      | npm install est fiable, fallback: electron-quick-start |
+| Sidecar pas pret      | Medium   | Mock IPC handlers dans le main process                 |
+| OIDC trop complexe    | Medium   | Mock auth (token hardcode)                             |
+| Protocol handler bugs | Medium   | Fallback: loadFile() au lieu de twake://               |
+| Crash en demo         | Critical | Backup plan (screenshots/video)                        |
 
 ---
 

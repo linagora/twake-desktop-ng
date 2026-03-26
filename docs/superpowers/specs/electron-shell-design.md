@@ -58,12 +58,12 @@ The Electron Shell provides the desktop application framework that hosts Twake w
 
 ```typescript
 // src/main.ts
-import { app, BrowserWindow, protocol } from 'electron';
-import { registerTwakeProtocol } from './protocol';
-import { createMainWindow } from './windows';
-import { setupIpcHandlers } from './ipc-bridge';
-import { SidecarManager } from './sidecar';
-import { AuthService } from './auth';
+import { app, BrowserWindow, protocol } from "electron";
+import { registerTwakeProtocol } from "./protocol";
+import { createMainWindow } from "./windows";
+import { setupIpcHandlers } from "./ipc-bridge";
+import { SidecarManager } from "./sidecar";
+import { AuthService } from "./auth";
 
 // Enforce single instance
 const gotLock = app.requestSingleInstanceLock();
@@ -87,8 +87,8 @@ app.whenReady().then(async () => {
   createMainWindow();
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });
@@ -98,8 +98,8 @@ app.on('window-all-closed', () => {
 
 ```typescript
 // src/windows.ts
-import { BrowserWindow, shell } from 'electron';
-import path from 'path';
+import { BrowserWindow, shell } from "electron";
+import path from "path";
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -110,21 +110,21 @@ export function createMainWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
       webSecurity: true,
     },
   });
 
   // Show when ready (avoids white flash)
-  win.once('ready-to-show', () => win.show());
+  win.once("ready-to-show", () => win.show());
 
   // Load local SPA via custom protocol
-  win.loadURL('twake://bundle/index.html');
+  win.loadURL("twake://bundle/index.html");
 
   // Security: restrict navigation
-  win.webContents.on('will-navigate', (event, url) => {
+  win.webContents.on("will-navigate", (event, url) => {
     const parsed = new URL(url);
-    const allowed = ['twake:', 'https:'];
+    const allowed = ["twake:", "https:"];
     if (!allowed.includes(parsed.protocol)) {
       event.preventDefault();
     }
@@ -133,10 +133,10 @@ export function createMainWindow(): BrowserWindow {
   // Security: restrict new window creation
   win.webContents.setWindowOpenHandler(({ url }) => {
     // Open external links in system browser
-    if (url.startsWith('https://')) {
+    if (url.startsWith("https://")) {
       shell.openExternal(url);
     }
-    return { action: 'deny' };
+    return { action: "deny" };
   });
 
   return win;
@@ -155,7 +155,7 @@ export function createAuthWindow(authUrl: string): BrowserWindow {
     },
   });
 
-  win.once('ready-to-show', () => win.show());
+  win.once("ready-to-show", () => win.show());
   win.loadURL(authUrl);
 
   return win;
@@ -168,47 +168,50 @@ Serves local SPA files securely, avoiding `file://` protocol risks.
 
 ```typescript
 // src/protocol.ts
-import { protocol, net } from 'electron';
-import path from 'path';
-import { pathToFileURL } from 'url';
+import { protocol, net } from "electron";
+import path from "path";
+import { pathToFileURL } from "url";
 
 export function registerTwakeProtocol() {
-  protocol.handle('twake', (request) => {
+  protocol.handle("twake", (request) => {
     const url = new URL(request.url);
 
-    if (url.hostname !== 'bundle') {
-      return new Response('Not found', { status: 404 });
+    if (url.hostname !== "bundle") {
+      return new Response("Not found", { status: 404 });
     }
 
     // Resolve path within app bundle (prevent path traversal)
     let filePath = decodeURIComponent(url.pathname);
-    if (filePath === '/' || filePath === '') {
-      filePath = '/index.html';
+    if (filePath === "/" || filePath === "") {
+      filePath = "/index.html";
     }
 
     const resolved = path.resolve(
-      path.join(__dirname, '..', 'renderer'),
-      filePath.replace(/^\//, '')
+      path.join(__dirname, "..", "renderer"),
+      filePath.replace(/^\//, ""),
     );
 
     // Security: ensure resolved path is within bundle directory
-    const bundleDir = path.resolve(path.join(__dirname, '..', 'renderer'));
+    const bundleDir = path.resolve(path.join(__dirname, "..", "renderer"));
     if (!resolved.startsWith(bundleDir)) {
-      return new Response('Forbidden', { status: 403 });
+      return new Response("Forbidden", { status: 403 });
     }
 
     // Serve file with CSP headers
     const response = net.fetch(pathToFileURL(resolved).toString());
-    return response.then(res => {
+    return response.then((res) => {
       const headers = new Headers(res.headers);
-      headers.set('Content-Security-Policy', [
-        "default-src 'self' twake:",
-        "script-src 'self' twake:",
-        "style-src 'self' twake: 'unsafe-inline'",
-        "connect-src https: wss: twake:",
-        "img-src 'self' twake: https: data:",
-        "font-src 'self' twake: https:",
-      ].join('; '));
+      headers.set(
+        "Content-Security-Policy",
+        [
+          "default-src 'self' twake:",
+          "script-src 'self' twake:",
+          "style-src 'self' twake: 'unsafe-inline'",
+          "connect-src https: wss: twake:",
+          "img-src 'self' twake: https: data:",
+          "font-src 'self' twake: https:",
+        ].join("; "),
+      );
       return new Response(res.body, {
         status: res.status,
         headers,
@@ -224,38 +227,38 @@ The preload script is the **only** bridge between renderer and main process. It 
 
 ```typescript
 // src/preload.ts
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from "electron";
 
 // Expose window.__twake to renderer
-contextBridge.exposeInMainWorld('__twake', {
+contextBridge.exposeInMainWorld("__twake", {
   // File operations (delegated to Rust via main process)
   getFileStatus(path: string) {
-    if (typeof path !== 'string') throw new TypeError('path must be string');
-    return ipcRenderer.invoke('twake:file:status', path);
+    if (typeof path !== "string") throw new TypeError("path must be string");
+    return ipcRenderer.invoke("twake:file:status", path);
   },
 
   hydrateFile(path: string) {
-    if (typeof path !== 'string') throw new TypeError('path must be string');
-    return ipcRenderer.invoke('twake:file:hydrate', path);
+    if (typeof path !== "string") throw new TypeError("path must be string");
+    return ipcRenderer.invoke("twake:file:hydrate", path);
   },
 
   listFiles(path: string, recursive = false) {
-    if (typeof path !== 'string') throw new TypeError('path must be string');
-    return ipcRenderer.invoke('twake:file:list', path, recursive);
+    if (typeof path !== "string") throw new TypeError("path must be string");
+    return ipcRenderer.invoke("twake:file:list", path, recursive);
   },
 
   // Authentication
   getToken() {
-    return ipcRenderer.invoke('twake:auth:token');
+    return ipcRenderer.invoke("twake:auth:token");
   },
 
   startAuth() {
-    return ipcRenderer.invoke('twake:auth:start');
+    return ipcRenderer.invoke("twake:auth:start");
   },
 
   // Events (Rust → renderer)
   on(event: string, callback: (...args: any[]) => void) {
-    if (typeof event !== 'string') throw new TypeError('event must be string');
+    if (typeof event !== "string") throw new TypeError("event must be string");
     const channel = `twake:event:${event}`;
     const listener = (_event: any, ...args: any[]) => callback(...args);
     ipcRenderer.on(channel, listener);
@@ -270,39 +273,42 @@ The main process bridges Electron IPC (from renderers) to JSON-RPC calls (to Rus
 
 ```typescript
 // src/ipc-bridge.ts
-import { ipcMain, BrowserWindow } from 'electron';
-import { SidecarManager } from './sidecar';
-import { AuthService } from './auth';
+import { ipcMain, BrowserWindow } from "electron";
+import { SidecarManager } from "./sidecar";
+import { AuthService } from "./auth";
 
 // Allowed IPC channels (whitelist)
 const ALLOWED_CHANNELS = [
-  'twake:file:status',
-  'twake:file:hydrate',
-  'twake:file:list',
-  'twake:auth:token',
-  'twake:auth:start',
+  "twake:file:status",
+  "twake:file:hydrate",
+  "twake:file:list",
+  "twake:auth:token",
+  "twake:auth:start",
 ] as const;
 
 export function setupIpcHandlers(sidecar: SidecarManager, auth: AuthService) {
   // File operations → delegate to Rust via JSON-RPC
-  ipcMain.handle('twake:file:status', async (_event, path: string) => {
-    return sidecar.call('file.status', { path });
+  ipcMain.handle("twake:file:status", async (_event, path: string) => {
+    return sidecar.call("file.status", { path });
   });
 
-  ipcMain.handle('twake:file:hydrate', async (_event, path: string) => {
-    return sidecar.call('file.hydrate', { path });
+  ipcMain.handle("twake:file:hydrate", async (_event, path: string) => {
+    return sidecar.call("file.hydrate", { path });
   });
 
-  ipcMain.handle('twake:file:list', async (_event, path: string, recursive: boolean) => {
-    return sidecar.call('file.list', { path, recursive });
-  });
+  ipcMain.handle(
+    "twake:file:list",
+    async (_event, path: string, recursive: boolean) => {
+      return sidecar.call("file.list", { path, recursive });
+    },
+  );
 
   // Auth operations
-  ipcMain.handle('twake:auth:token', async () => {
+  ipcMain.handle("twake:auth:token", async () => {
     return auth.getToken();
   });
 
-  ipcMain.handle('twake:auth:start', async () => {
+  ipcMain.handle("twake:auth:start", async () => {
     return auth.startInteractiveAuth();
   });
 
@@ -319,10 +325,10 @@ export function setupIpcHandlers(sidecar: SidecarManager, auth: AuthService) {
 
 ```typescript
 // src/sidecar.ts
-import { spawn, ChildProcess } from 'child_process';
-import { app } from 'electron';
-import { createConnection, Socket } from 'net';
-import path from 'path';
+import { spawn, ChildProcess } from "child_process";
+import { app } from "electron";
+import { createConnection, Socket } from "net";
+import path from "path";
 
 export class SidecarManager {
   private process: ChildProcess | null = null;
@@ -333,24 +339,33 @@ export class SidecarManager {
   private eventListeners: Array<(event: string, data: any) => void> = [];
 
   constructor() {
-    this.socketPath = path.join(app.getPath('userData'), 'twake-ipc.sock');
+    this.socketPath = path.join(app.getPath("userData"), "twake-ipc.sock");
   }
 
   async start(): Promise<void> {
-    const binaryName = process.platform === 'win32' ? 'twake-sync.exe' : 'twake-sync';
+    const binaryName =
+      process.platform === "win32" ? "twake-sync.exe" : "twake-sync";
     const binaryPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'bin', binaryName)
-      : path.join(__dirname, '..', '..', 'sync-engine', 'target', 'release', binaryName);
+      ? path.join(process.resourcesPath, "bin", binaryName)
+      : path.join(
+          __dirname,
+          "..",
+          "..",
+          "sync-engine",
+          "target",
+          "release",
+          binaryName,
+        );
 
-    this.process = spawn(binaryPath, ['--socket', this.socketPath], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    this.process = spawn(binaryPath, ["--socket", this.socketPath], {
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
-    this.process.stderr?.on('data', (data) => {
-      console.error('[sync-engine]', data.toString());
+    this.process.stderr?.on("data", (data) => {
+      console.error("[sync-engine]", data.toString());
     });
 
-    this.process.on('exit', (code) => {
+    this.process.on("exit", (code) => {
       console.error(`Sync engine exited with code ${code}`);
       if (code !== 0) {
         setTimeout(() => this.start(), 2000); // Auto-restart with backoff
@@ -362,14 +377,18 @@ export class SidecarManager {
     await this.connect();
   }
 
-  async call(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async call(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const id = ++this.requestId;
-    const request = JSON.stringify({
-      jsonrpc: '2.0',
-      method,
-      params,
-      id,
-    }) + '\n';
+    const request =
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method,
+        params,
+        id,
+      }) + "\n";
 
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -398,10 +417,10 @@ export class SidecarManager {
     return new Promise((resolve, reject) => {
       this.socket = createConnection(this.socketPath);
 
-      let buffer = '';
-      this.socket.on('data', (chunk) => {
+      let buffer = "";
+      this.socket.on("data", (chunk) => {
         buffer += chunk.toString();
-        const lines = buffer.split('\n');
+        const lines = buffer.split("\n");
         buffer = lines.pop()!;
 
         for (const line of lines) {
@@ -409,12 +428,14 @@ export class SidecarManager {
           try {
             const msg = JSON.parse(line);
             this.handleMessage(msg);
-          } catch { /* ignore malformed */ }
+          } catch {
+            /* ignore malformed */
+          }
         }
       });
 
-      this.socket.once('connect', resolve);
-      this.socket.once('error', reject);
+      this.socket.once("connect", resolve);
+      this.socket.once("error", reject);
     });
   }
 
@@ -427,7 +448,7 @@ export class SidecarManager {
       } else {
         resolve(msg.result);
       }
-    } else if (msg.method?.startsWith('events.')) {
+    } else if (msg.method?.startsWith("events.")) {
       // Event notification from Rust
       const data = msg.params?.result || msg.params;
       const eventType = data?.type || msg.method;
@@ -441,8 +462,11 @@ export class SidecarManager {
     return new Promise((resolve) => {
       const check = () => {
         const sock = createConnection(this.socketPath);
-        sock.once('connect', () => { sock.destroy(); resolve(); });
-        sock.once('error', () => setTimeout(check, 100));
+        sock.once("connect", () => {
+          sock.destroy();
+          resolve();
+        });
+        sock.once("error", () => setTimeout(check, 100));
       };
       setTimeout(check, 200); // Give sidecar time to create socket
     });
@@ -454,9 +478,9 @@ export class SidecarManager {
 
 ```typescript
 // src/auth.ts
-import { BrowserWindow, safeStorage } from 'electron';
-import { createServer } from 'http';
-import { randomBytes, createHash } from 'crypto';
+import { BrowserWindow, safeStorage } from "electron";
+import { createServer } from "http";
+import { randomBytes, createHash } from "crypto";
 
 interface TokenResponse {
   access_token: string;
@@ -479,29 +503,30 @@ export class AuthService {
 
   async configure(serverUrl: string): Promise<void> {
     const response = await fetch(
-      `${serverUrl}/.well-known/twake/desktop-configuration`
+      `${serverUrl}/.well-known/twake/desktop-configuration`,
     );
     this.config = await response.json();
   }
 
   async startInteractiveAuth(): Promise<TokenResponse> {
-    if (!this.config) throw new Error('Not configured — call configure() first');
+    if (!this.config)
+      throw new Error("Not configured — call configure() first");
 
     // Generate PKCE codes
-    const codeVerifier = randomBytes(32).toString('base64url');
-    const codeChallenge = createHash('sha256')
+    const codeVerifier = randomBytes(32).toString("base64url");
+    const codeChallenge = createHash("sha256")
       .update(codeVerifier)
-      .digest('base64url');
+      .digest("base64url");
 
     // Start local HTTP server for callback
     const { code, redirectUri } = await this.waitForAuthCallback(codeChallenge);
 
     // Exchange code for tokens
     const tokenResponse = await fetch(`${this.config.sso_url}/oauth2/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: 'authorization_code',
+        grant_type: "authorization_code",
         client_id: this.config.client_id_interactive,
         code,
         redirect_uri: redirectUri,
@@ -518,7 +543,10 @@ export class AuthService {
     return this.token!;
   }
 
-  async getToken(): Promise<{ access_token: string; expires_in: number } | null> {
+  async getToken(): Promise<{
+    access_token: string;
+    expires_in: number;
+  } | null> {
     if (!this.token) {
       this.loadToken();
     }
@@ -541,36 +569,41 @@ export class AuthService {
   }
 
   private async waitForAuthCallback(
-    codeChallenge: string
+    codeChallenge: string,
   ): Promise<{ code: string; redirectUri: string }> {
     return new Promise((resolve, reject) => {
       const server = createServer((req, res) => {
         const url = new URL(req.url!, `http://127.0.0.1`);
-        const code = url.searchParams.get('code');
+        const code = url.searchParams.get("code");
 
         if (code) {
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end('<html><body><h1>Authentication successful</h1><p>You can close this window.</p></body></html>');
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end(
+            "<html><body><h1>Authentication successful</h1><p>You can close this window.</p></body></html>",
+          );
           server.close();
           resolve({ code, redirectUri });
         } else {
           res.writeHead(400);
-          res.end('Missing code');
+          res.end("Missing code");
         }
       });
 
-      server.listen(0, '127.0.0.1', () => {
+      server.listen(0, "127.0.0.1", () => {
         const port = (server.address() as any).port;
         const redirectUri = `http://127.0.0.1:${port}/callback`;
 
         // Build auth URL
         const authUrl = new URL(`${this.config!.sso_url}/oauth2/auth`);
-        authUrl.searchParams.set('client_id', this.config!.client_id_interactive);
-        authUrl.searchParams.set('response_type', 'code');
-        authUrl.searchParams.set('redirect_uri', redirectUri);
-        authUrl.searchParams.set('scope', this.config!.scopes.join(' '));
-        authUrl.searchParams.set('code_challenge', codeChallenge);
-        authUrl.searchParams.set('code_challenge_method', 'S256');
+        authUrl.searchParams.set(
+          "client_id",
+          this.config!.client_id_interactive,
+        );
+        authUrl.searchParams.set("response_type", "code");
+        authUrl.searchParams.set("redirect_uri", redirectUri);
+        authUrl.searchParams.set("scope", this.config!.scopes.join(" "));
+        authUrl.searchParams.set("code_challenge", codeChallenge);
+        authUrl.searchParams.set("code_challenge_method", "S256");
 
         // Open auth window
         const authWin = new BrowserWindow({
@@ -584,9 +617,9 @@ export class AuthService {
         });
 
         authWin.loadURL(authUrl.toString());
-        authWin.on('closed', () => {
+        authWin.on("closed", () => {
           server.close();
-          reject(new Error('Auth window closed'));
+          reject(new Error("Auth window closed"));
         });
       });
     });
@@ -596,10 +629,10 @@ export class AuthService {
     if (!this.config || !this.token?.refresh_token) return;
 
     const response = await fetch(`${this.config.sso_url}/oauth2/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: 'refresh_token',
+        grant_type: "refresh_token",
         client_id: this.config.client_id_interactive,
         refresh_token: this.token.refresh_token,
       }),
@@ -612,22 +645,25 @@ export class AuthService {
 
   private saveToken() {
     if (!this.token) return;
-    const data = JSON.stringify({ token: this.token, obtainedAt: this.tokenObtainedAt });
+    const data = JSON.stringify({
+      token: this.token,
+      obtainedAt: this.tokenObtainedAt,
+    });
     const encrypted = safeStorage.encryptString(data);
     // Write to app data dir
-    const fs = require('fs');
-    const path = require('path');
-    const { app } = require('electron');
-    const tokenPath = path.join(app.getPath('userData'), 'auth.enc');
+    const fs = require("fs");
+    const path = require("path");
+    const { app } = require("electron");
+    const tokenPath = path.join(app.getPath("userData"), "auth.enc");
     fs.writeFileSync(tokenPath, encrypted);
   }
 
   private loadToken() {
     try {
-      const fs = require('fs');
-      const path = require('path');
-      const { app } = require('electron');
-      const tokenPath = path.join(app.getPath('userData'), 'auth.enc');
+      const fs = require("fs");
+      const path = require("path");
+      const { app } = require("electron");
+      const tokenPath = path.join(app.getPath("userData"), "auth.enc");
       const encrypted = fs.readFileSync(tokenPath);
       const data = JSON.parse(safeStorage.decryptString(encrypted));
       this.token = data.token;
@@ -673,22 +709,22 @@ font-src 'self' twake: https:;
 
 Only these channels are handled by the main process:
 
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `twake:file:status` | renderer → main | Get file state |
-| `twake:file:hydrate` | renderer → main | Download file |
-| `twake:file:list` | renderer → main | List directory |
-| `twake:auth:token` | renderer → main | Get current token |
-| `twake:auth:start` | renderer → main | Start OIDC flow |
-| `twake:event:*` | main → renderer | Push events from Rust |
+| Channel              | Direction       | Purpose               |
+| -------------------- | --------------- | --------------------- |
+| `twake:file:status`  | renderer → main | Get file state        |
+| `twake:file:hydrate` | renderer → main | Download file         |
+| `twake:file:list`    | renderer → main | List directory        |
+| `twake:auth:token`   | renderer → main | Get current token     |
+| `twake:auth:start`   | renderer → main | Start OIDC flow       |
+| `twake:event:*`      | main → renderer | Push events from Rust |
 
 ### Navigation Restrictions
 
 ```typescript
 // Only allow these protocol/origin combinations
-win.webContents.on('will-navigate', (event, url) => {
+win.webContents.on("will-navigate", (event, url) => {
   const parsed = new URL(url);
-  if (parsed.protocol !== 'twake:' && parsed.protocol !== 'https:') {
+  if (parsed.protocol !== "twake:" && parsed.protocol !== "https:") {
     event.preventDefault();
   }
 });
@@ -819,13 +855,13 @@ cd ../sync-engine && cargo build --release
 
 ## Risks and Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| **Security misconfiguration** | High | Defaults are secure; security checklist in CI |
-| **Memory usage** | Medium | Lazy windows, monitor with `process.memoryUsage()` |
-| **Sidecar crash** | Medium | Auto-restart with exponential backoff |
-| **Electron version churn** | Low | Use LTS releases, test before upgrade |
-| **Bundle size** | Low | esbuild bundling, ASAR, exclude dev deps |
+| Risk                          | Impact | Mitigation                                         |
+| ----------------------------- | ------ | -------------------------------------------------- |
+| **Security misconfiguration** | High   | Defaults are secure; security checklist in CI      |
+| **Memory usage**              | Medium | Lazy windows, monitor with `process.memoryUsage()` |
+| **Sidecar crash**             | Medium | Auto-restart with exponential backoff              |
+| **Electron version churn**    | Low    | Use LTS releases, test before upgrade              |
+| **Bundle size**               | Low    | esbuild bundling, ASAR, exclude dev deps           |
 
 ---
 

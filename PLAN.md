@@ -94,6 +94,7 @@
 **Bloquante:** Contrat IPC (JSON-RPC schema) -- 3 jours max d'attente
 
 **Non bloquantes:**
+
 - Peut preparer l'Electron shell pendant l'attente
 - Peut developper le bridge avec mock IPC handlers
 
@@ -228,12 +229,28 @@ Stream C (IPC + Network):
 ```json
 {
   "methods": [
-    { "name": "file.status", "params": { "path": "string" }, "returns": "FileStatus" },
-    { "name": "file.hydrate", "params": { "path": "string" }, "returns": "Result<void, Error>" },
-    { "name": "file.list", "params": { "path": "string", "recursive": "boolean" }, "returns": "Vec<FileNode>" },
+    {
+      "name": "file.status",
+      "params": { "path": "string" },
+      "returns": "FileStatus"
+    },
+    {
+      "name": "file.hydrate",
+      "params": { "path": "string" },
+      "returns": "Result<void, Error>"
+    },
+    {
+      "name": "file.list",
+      "params": { "path": "string", "recursive": "boolean" },
+      "returns": "Vec<FileNode>"
+    },
     { "name": "auth.token", "params": {}, "returns": "TokenInfo" },
     { "name": "events.subscribe", "params": {}, "returns": "Subscription" },
-    { "name": "events.emit", "params": { "event": "string", "data": "string" }, "returns": "null" }
+    {
+      "name": "events.emit",
+      "params": { "event": "string", "data": "string" },
+      "returns": "null"
+    }
   ]
 }
 ```

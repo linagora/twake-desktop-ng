@@ -91,12 +91,12 @@ The Electron shell enforces **defense in depth**:
 
 For implementation details, refer to these design specs:
 
-| Component | Spec Document | Description |
-|-----------|---------------|-------------|
-| **Electron Shell** | [electron-shell-design.md](superpowers/specs/electron-shell-design.md) | Window management, preload, contextBridge, security |
-| **VFS Engine** | [vfs-engine-design.md](superpowers/specs/vfs-engine-design.md) | FUSE/ProjFS implementation, placeholder files |
+| Component          | Spec Document                                                                        | Description                                         |
+| ------------------ | ------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| **Electron Shell** | [electron-shell-design.md](superpowers/specs/electron-shell-design.md)               | Window management, preload, contextBridge, security |
+| **VFS Engine**     | [vfs-engine-design.md](superpowers/specs/vfs-engine-design.md)                       | FUSE/ProjFS implementation, placeholder files       |
 | **Reconciliation** | [reconciliation-engine-design.md](superpowers/specs/reconciliation-engine-design.md) | Conflict detection, last-write-wins, CRDT migration |
-| **IPC Contract** | [ipc-contract-design.md](superpowers/specs/ipc-contract-design.md) | JSON-RPC schema, event types, error codes |
+| **IPC Contract**   | [ipc-contract-design.md](superpowers/specs/ipc-contract-design.md)                   | JSON-RPC schema, event types, error codes           |
 
 ---
 
@@ -104,27 +104,27 @@ For implementation details, refer to these design specs:
 
 ### Electron Shell (TypeScript)
 
-| Component | Technology | Notes |
-|-----------|------------|-------|
-| **Runtime** | Electron (latest stable) | Chromium + Node.js |
-| **Language** | TypeScript | Strict mode |
-| **Build** | esbuild (main process), electron-builder (packaging) | Fast bundling |
-| **IPC to Rust** | JSON-RPC over Unix socket | `net` module or raw socket |
-| **Token storage** | `safeStorage` API | OS-level encryption |
-| **Local SPA** | Custom protocol `twake://bundle/` | Secure static file serving |
+| Component         | Technology                                           | Notes                      |
+| ----------------- | ---------------------------------------------------- | -------------------------- |
+| **Runtime**       | Electron (latest stable)                             | Chromium + Node.js         |
+| **Language**      | TypeScript                                           | Strict mode                |
+| **Build**         | esbuild (main process), electron-builder (packaging) | Fast bundling              |
+| **IPC to Rust**   | JSON-RPC over Unix socket                            | `net` module or raw socket |
+| **Token storage** | `safeStorage` API                                    | OS-level encryption        |
+| **Local SPA**     | Custom protocol `twake://bundle/`                    | Secure static file serving |
 
 ### Sync Engine (Rust)
 
-| Component | Crate | Notes |
-|-----------|-------|-------|
-| **Async runtime** | `tokio` | Multi-threaded |
-| **VFS Linux** | `fuse3` | FUSE 3.x bindings |
-| **VFS Windows** | `projfs` | ProjFS bindings |
-| **VFS macOS** | FFI to FileProvider | Native framework |
-| **Database** | `sqlx` | Async SQL, SQLite |
-| **IPC server** | `jsonrpsee` | JSON-RPC over Unix socket |
-| **WebSocket** | `tokio-tungstenite` | Async WebSocket |
-| **HTTP** | `reqwest` | Async HTTP client |
+| Component         | Crate               | Notes                     |
+| ----------------- | ------------------- | ------------------------- |
+| **Async runtime** | `tokio`             | Multi-threaded            |
+| **VFS Linux**     | `fuse3`             | FUSE 3.x bindings         |
+| **VFS Windows**   | `projfs`            | ProjFS bindings           |
+| **VFS macOS**     | FFI to FileProvider | Native framework          |
+| **Database**      | `sqlx`              | Async SQL, SQLite         |
+| **IPC server**    | `jsonrpsee`         | JSON-RPC over Unix socket |
+| **WebSocket**     | `tokio-tungstenite` | Async WebSocket           |
+| **HTTP**          | `reqwest`           | Async HTTP client         |
 
 ---
 
@@ -132,11 +132,11 @@ For implementation details, refer to these design specs:
 
 The project is structured for parallel development across 2 main streams:
 
-| Stream | Focus | Status |
-|--------|-------|--------|
-| **Stream A** | Electron Shell (TypeScript) | [STREAM_A_ELECTRON.md](../STREAM_A_ELECTRON.md) |
-| **Stream B** | Sync Core (Rust VFS + reconciliation) | [STREAM_B_SYNC_CORE.md](../STREAM_B_SYNC_CORE.md) |
-| **Stream C** | IPC + Network + Auth (Rust) | [STREAM_C_IPC_NETWORK.md](../STREAM_C_IPC_NETWORK.md) |
+| Stream       | Focus                                 | Status                                                |
+| ------------ | ------------------------------------- | ----------------------------------------------------- |
+| **Stream A** | Electron Shell (TypeScript)           | [STREAM_A_ELECTRON.md](../STREAM_A_ELECTRON.md)       |
+| **Stream B** | Sync Core (Rust VFS + reconciliation) | [STREAM_B_SYNC_CORE.md](../STREAM_B_SYNC_CORE.md)     |
+| **Stream C** | IPC + Network + Auth (Rust)           | [STREAM_C_IPC_NETWORK.md](../STREAM_C_IPC_NETWORK.md) |
 
 **Interfaces:** See [INTERFACES.md](../INTERFACES.md) for contract definitions.
 
