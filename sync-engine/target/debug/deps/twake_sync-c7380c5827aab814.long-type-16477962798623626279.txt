@@ -1,0 +1,1 @@
+<Iter<IntoIter<Result<DirectoryEntry, Errno>>> as Stream>::Item == Result<DirectoryEntryPlus, Errno>

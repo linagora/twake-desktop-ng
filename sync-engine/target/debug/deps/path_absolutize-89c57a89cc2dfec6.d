@@ -1,0 +1,10 @@
+/home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/deps/path_absolutize-89c57a89cc2dfec6.d: /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/lib.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/absolutize.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/macros.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/unix.rs
+
+/home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/deps/libpath_absolutize-89c57a89cc2dfec6.rlib: /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/lib.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/absolutize.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/macros.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/unix.rs
+
+/home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/deps/libpath_absolutize-89c57a89cc2dfec6.rmeta: /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/lib.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/absolutize.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/macros.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/unix.rs
+
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/lib.rs:
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/absolutize.rs:
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/macros.rs:
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/path-absolutize-3.1.1/src/unix.rs:

@@ -1,0 +1,14 @@
+/home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/deps/serde-3fa003e2d4fff0d6.d: /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/build/serde-c650bb47b9923af4/out/private.rs
+
+/home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/deps/libserde-3fa003e2d4fff0d6.rlib: /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/build/serde-c650bb47b9923af4/out/private.rs
+
+/home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/deps/libserde-3fa003e2d4fff0d6.rmeta: /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/build/serde-c650bb47b9923af4/out/private.rs
+
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/superadmin/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/build/serde-c650bb47b9923af4/out/private.rs:
+
+# env-dep:OUT_DIR=/home/superadmin/Sources/twake-desktop-ng/sync-engine/target/debug/build/serde-c650bb47b9923af4/out

@@ -1,0 +1,72 @@
+[package]
+name = "twake-sync"
+version = "0.1.0"
+edition = "2021"
+authors = ["Twake Team"]
+description = "Twake Sync Engine with FUSE VFS and on-demand hydration"
+
+[lib]
+name = "twake_sync"
+path = "src/lib.rs"
+
+[[bin]]
+name = "twake-vfs"
+path = "src/bin/twake-vfs.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# FUSE
+fuse3 = { version = "0.8", features = ["tokio-runtime", "unprivileged"] }
+
+# Byte buffers
+bytes = "1"
+
+# Futures
+futures-util = "0.3"
+
+# Libc
+libc = "0.2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# IPC (JSON-RPC)
+jsonrpsee = { version = "0.22", features = ["server"] }
+
+# Async trait
+async-trait = "0.1"
+
+# File watching
+notify = "6.1"
+
+# Date/time
+time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
+
+# HTTP client for hydration
+reqwest = { version = "0.11", features = ["json"] }
+
+# Path manipulation
+path-absolutize = "3.1"
+
+[dev-dependencies]
+tempfile = "3.9"
