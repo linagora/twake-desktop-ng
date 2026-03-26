@@ -102,6 +102,17 @@ pub trait TwakeSyncApi {
     /// Emit an event (from WebView)
     #[method(name = "events.emit")]
     async fn emit_event(&self, event: String, data: String) -> RpcResult<()>;
+
+    /// Get current authentication token
+    #[method(name = "auth.token")]
+    async fn auth_token(&self) -> RpcResult<TokenInfo>;
+}
+
+/// Token info returned by auth.token
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenInfo {
+    pub access_token: String,
+    pub expires_in: u64,
 }
 
 /// File status (simplified for IPC)
@@ -112,6 +123,9 @@ pub struct FileStatus {
     pub size: u64,
     pub modified: String,  // ISO 8601
 }
+
+// FileState is defined in crate::models::file_state (source of truth: INTERFACES.md)
+// Variants: Ghost, Hydrated, Modified, Syncing, Conflict, Error
 
 /// Events that can be published/subscribed
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -464,18 +478,23 @@ pub struct PkceCodes {
     pub code_challenge: String,
 }
 
+// Cozy uses OAuth2 with dynamic client registration (RFC 7591)
+// 1. POST /auth/register → get client_id, client_secret
+// 2. GET /auth/authorize?client_id=...&redirect_uri=http://127.0.0.1:19856/callback&response_type=code&scope=io.cozy.files
+// 3. POST /auth/access_token → exchange code for tokens
+// See: https://docs.cozy.io/en/cozy-stack/auth/
+
 pub fn generate_pkce_codes() -> PkceCodes {
-    // Generate random code verifier
-    let mut verifier = vec![0u8; 32];
-    rand::thread_rng().fill_bytes(&mut verifier);
+    // Generate random code verifier (RFC 7636 Section 4.1)
+    let mut random_bytes = vec![0u8; 32];
+    rand::thread_rng().fill_bytes(&mut random_bytes);
+    let code_verifier = URL_SAFE_NO_PAD.encode(&random_bytes);
 
-    let code_verifier = URL_SAFE_NO_PAD.encode(&verifier);
-
-    // Generate code challenge (SHA256 of verifier)
+    // Generate code challenge: BASE64URL(SHA256(code_verifier))
+    // Per RFC 7636 Section 4.2, hash the ASCII string, not the raw bytes
     let mut hasher = Sha256::new();
-    hasher.update(&verifier);
+    hasher.update(code_verifier.as_bytes());
     let challenge = hasher.finalize();
-
     let code_challenge = URL_SAFE_NO_PAD.encode(&challenge);
 
     PkceCodes {
@@ -504,7 +523,7 @@ mod tests {
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use chrono::Utc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -514,6 +533,15 @@ pub struct TokenResponse {
     pub expires_in: u64,
     pub refresh_token: Option<String>,
     pub scope: Option<String>,
+    #[serde(default = "now_timestamp")]
+    pub obtained_at: u64,  // Unix timestamp when token was obtained
+}
+
+fn now_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 pub struct TokenStorage {
@@ -533,7 +561,8 @@ impl TokenStorage {
         Self { path }
     }
 
-    pub fn save(&self, token: &TokenResponse) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self, token: &mut TokenResponse) -> Result<(), Box<dyn std::error::Error>> {
+        token.obtained_at = now_timestamp();
         let json = serde_json::to_string_pretty(token)?;
         fs::write(&self.path, json)?;
         info!("Token saved to {:?}", self.path);
@@ -547,8 +576,9 @@ impl TokenStorage {
 
     pub fn is_valid(&self) -> bool {
         if let Some(token) = self.load() {
-            let expires_at = Utc::now().timestamp() as u64 + token.expires_in;
-            expires_at > Utc::now().timestamp() as u64
+            let now = now_timestamp();
+            let expires_at = token.obtained_at + token.expires_in;
+            now < expires_at
         } else {
             false
         }
@@ -565,50 +595,95 @@ impl TokenStorage {
 **Tâche C2.3: Network client**
 
 ```rust
-// src/network/client.rs
+// src/network/cozy_client.rs
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::auth::token_storage::{TokenResponse, TokenStorage};
+use crate::auth::token_storage::TokenStorage;
 
-pub struct TwakeClient {
+/// Cozy file document from the /files API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CozyFileDoc {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub doc_type: String,    // "directory" or "file"
+    pub attributes: CozyFileAttributes,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CozyFileAttributes {
+    pub name: String,
+    pub path: Option<String>,
+    pub size: Option<u64>,
+    pub md5sum: Option<String>,
+    pub updated_at: Option<String>,
+    #[serde(rename = "type")]
+    pub file_type: String,   // "directory" or "file"
+}
+
+/// Changes feed response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CozyChangesResponse {
+    pub last_seq: String,
+    pub results: Vec<CozyChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CozyChange {
+    pub seq: String,
+    pub id: String,
+    pub doc: Option<serde_json::Value>,
+    pub deleted: Option<bool>,
+}
+
+pub struct CozyClient {
     http: Client,
+    /// Cozy instance URL, e.g. "https://myname.mycozy.cloud"
     base_url: String,
     token_storage: TokenStorage,
 }
 
-impl TwakeClient {
+impl CozyClient {
     pub fn new(base_url: &str) -> Self {
         Self {
             http: Client::new(),
-            base_url: base_url.to_string(),
+            base_url: base_url.trim_end_matches('/').to_string(),
             token_storage: TokenStorage::new(),
         }
     }
 
-    pub async fn get_metadata(&self, path: &str) -> Result<serde_json::Value, reqwest::Error> {
-        let url = format!("{}/api/v1/files{}", self.base_url, path);
+    fn auth_header(&self) -> Option<String> {
+        self.token_storage.load().map(|t| t.access_token)
+    }
 
-        let token = self.token_storage.load();
-        let mut req = self.http.get(&url);
+    /// List directory contents (Cozy Files API)
+    /// GET /files/:dir-id
+    pub async fn list_dir(&self, dir_id: &str) -> Result<Vec<CozyFileDoc>, Box<dyn std::error::Error>> {
+        let url = format!("{}/files/{}", self.base_url, dir_id);
 
-        if let Some(ref t) = token {
-            req = req.bearer_auth(&t.access_token);
+        let mut req = self.http.get(&url)
+            .header("Accept", "application/vnd.api+json");
+
+        if let Some(token) = self.auth_header() {
+            req = req.bearer_auth(token);
         }
 
         let response = req.send().await?;
-        response.json().await
+        let body: serde_json::Value = response.json().await?;
+        // Parse JSON:API included/data format
+        let docs = Self::parse_jsonapi_collection(&body);
+        Ok(docs)
     }
 
-    pub async fn download_file(&self, path: &str, dest: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-        let url = format!("{}/api/v1/files{}/content", self.base_url, path);
+    /// Download file content
+    /// GET /files/download/:file-id
+    pub async fn download_file(&self, file_id: &str, dest: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        let url = format!("{}/files/download/{}", self.base_url, file_id);
 
-        let token = self.token_storage.load();
         let mut req = self.http.get(&url);
-
-        if let Some(ref t) = token {
-            req = req.bearer_auth(&t.access_token);
+        if let Some(token) = self.auth_header() {
+            req = req.bearer_auth(token);
         }
 
         let response = req.send().await?;
@@ -616,8 +691,45 @@ impl TwakeClient {
 
         tokio::fs::write(dest, &bytes).await?;
         info!("Downloaded {} bytes to {:?}", bytes.len(), dest);
-
         Ok(())
+    }
+
+    /// Get changes feed (for sync)
+    /// GET /files/_changes?since=<seq>&include_docs=true
+    pub async fn get_changes(&self, since: &str) -> Result<CozyChangesResponse, Box<dyn std::error::Error>> {
+        let url = format!(
+            "{}/files/_changes?since={}&include_docs=true&include_file_path=true",
+            self.base_url, since
+        );
+
+        let mut req = self.http.get(&url)
+            .header("Accept", "application/vnd.api+json");
+        if let Some(token) = self.auth_header() {
+            req = req.bearer_auth(token);
+        }
+
+        let response = req.send().await?;
+        let changes: CozyChangesResponse = response.json().await?;
+        info!("Got {} changes since {}", changes.results.len(), since);
+        Ok(changes)
+    }
+
+    /// Get root directory listing (alias for list_dir with root ID)
+    pub async fn list_root(&self) -> Result<Vec<CozyFileDoc>, Box<dyn std::error::Error>> {
+        self.list_dir("io.cozy.files.root-dir").await
+    }
+
+    fn parse_jsonapi_collection(body: &serde_json::Value) -> Vec<CozyFileDoc> {
+        // Cozy uses JSON:API format — parse "included" or "data" array
+        let mut docs = Vec::new();
+        if let Some(included) = body.get("included").and_then(|v| v.as_array()) {
+            for item in included {
+                if let Ok(doc) = serde_json::from_value::<CozyFileDoc>(item.clone()) {
+                    docs.push(doc);
+                }
+            }
+        }
+        docs
     }
 }
 ```
@@ -646,7 +758,7 @@ pub mod mock_server {
 }
 ```
 
-**Critère de succès:** HTTP client peut appeler API Twake
+**Critère de succès:** HTTP client peut appeler API Cozy
 
 ---
 
@@ -841,15 +953,19 @@ SERVER_PID=$!
 sleep 2
 
 echo "2. Testing file.status..."
-curl -X POST http://localhost \
+curl -X POST --unix-socket /tmp/twake-ipc.sock \
+  http://localhost/ \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"file.status","params":{"path":"/test.txt"},"id":1}'
 
-echo "3. Testing file.hydrate..."
-curl -X POST http://localhost \
+echo ""
+echo "3. Testing auth.token..."
+curl -X POST --unix-socket /tmp/twake-ipc.sock \
+  http://localhost/ \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"file.hydrate","params":{"path":"/test.txt"},"id":2}'
+  -d '{"jsonrpc":"2.0","method":"auth.token","params":{},"id":2}'
 
+echo ""
 echo "4. Stopping server..."
 kill $SERVER_PID
 ```
@@ -876,7 +992,7 @@ cargo build --release
 ```toml
 # Required
 - jsonrpsee (JSON-RPC server)
-- reqwest (HTTP client)
+- reqwest (Cozy HTTP client)
 - tokio-tungstenite (WebSocket)
 - base64, sha2, rand (PKCE)
 - serde, serde_json (serialization)

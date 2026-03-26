@@ -241,8 +241,6 @@ pub enum FileState {
     Modified,
     /// Sync operation in progress
     Syncing,
-    /// Successfully synced to remote
-    Synced,
     /// Conflict detected during sync
     Conflict,
     /// Sync error occurred
@@ -278,7 +276,6 @@ mod tests {
             FileState::Hydrated,
             FileState::Modified,
             FileState::Syncing,
-            FileState::Synced,
             FileState::Conflict,
             FileState::Error,
         ];

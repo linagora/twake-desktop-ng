@@ -70,11 +70,12 @@ pub trait VfsBackend: Send + Sync {
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
-    pub id: Uuid,           // Immutable UUID (true identity)
-    pub path: String,       // Current path (alias, can change)
+    pub id: Uuid,              // Immutable UUID (true identity)
+    pub remote_id: Option<String>, // ID côté serveur Cozy
+    pub path: String,          // Current path (alias, can change)
     pub state: FileState,
     pub size: u64,
-    pub modified: OffsetDateTime,
+    pub modified: String,      // ISO 8601 timestamp
     pub is_dir: bool,
     pub parent_id: Option<Uuid>,
 }
@@ -152,6 +153,7 @@ pub enum FileState {
 ```sql
 CREATE TABLE file_nodes (
     id TEXT PRIMARY KEY,
+    remote_id TEXT,
     path TEXT UNIQUE NOT NULL,
     state TEXT NOT NULL,
     size INTEGER NOT NULL DEFAULT 0,
@@ -228,14 +230,16 @@ pub enum VfsError {
 
 ```toml
 [dependencies]
-fuse3 = "0.3"              # FUSE 3.x bindings
+fuse3 = { version = "0.8", features = ["tokio-runtime", "unprivileged"] }
 sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }
 tokio = { version = "1.35", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 notify = "6.1"             # File watching
 thiserror = "1.0"
-async-trait = "0.1"
+bytes = "1"
+futures-util = "0.3"
+libc = "0.2"
 ```
 
 ---

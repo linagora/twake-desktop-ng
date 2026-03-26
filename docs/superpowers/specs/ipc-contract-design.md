@@ -63,7 +63,7 @@ The IPC (Inter-Process Communication) contract defines how the CEF shell (C++) a
 
 ### file.status
 
-Get file state (Ghost/Hydrated/Modified/Error).
+Get file state (Ghost/Hydrated/Modified/Syncing/Conflict/Error).
 
 **Request:**
 ```json
@@ -146,7 +146,9 @@ List directory contents.
       "state": "ghost",
       "size": 1024,
       "modified": "2026-03-25T10:00:00Z",
-      "is_dir": false
+      "is_dir": false,
+      "remote_id": "6a1ff9c8e4b0a3d2",
+      "parent_id": null
     }
   ],
   "id": 3
@@ -235,7 +237,7 @@ pub struct FileChanged {
 }
 ```
 
-**When:** File state changes (Ghost → Hydrated, Modified → Synced, etc.)
+**When:** File state changes (Ghost → Hydrated, Modified → Syncing → Hydrated, etc.)
 
 ### SyncStarted
 
@@ -309,15 +311,19 @@ pub enum FileState {
 
 ### FileNode
 
+> Aligné sur INTERFACES.md (source de vérité).
+
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
-    pub id: String,           // UUID v4 (string format)
+    pub id: Uuid,              // UUID v4 (sérialisé en string JSON)
+    pub remote_id: Option<String>, // ID côté serveur Cozy
     pub path: String,
     pub state: FileState,
     pub size: u64,
     pub modified: String,     // ISO 8601
     pub is_dir: bool,
+    pub parent_id: Option<Uuid>,
 }
 ```
 

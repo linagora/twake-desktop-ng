@@ -16,7 +16,7 @@
 - **Protocol:** JSON-RPC 2.0
 - **Encoding:** UTF-8
 
-### Méthodes (4 méthodes pour MVP)
+### Méthodes (6 méthodes pour MVP)
 
 ```json
 {
@@ -27,7 +27,7 @@
         "path": "string"
       },
       "returns": "FileStatus",
-      "description": "Get file state (Ghost/Hydrated/Modified/Error)"
+      "description": "Get file state (Ghost/Hydrated/Modified/Syncing/Conflict/Error)"
     },
     {
       "name": "file.hydrate",
@@ -51,6 +51,21 @@
       "params": {},
       "returns": "{ access_token: string, expires_in: number }",
       "description": "Get current auth token"
+    },
+    {
+      "name": "events.subscribe",
+      "params": {},
+      "returns": "Subscription (JSON-RPC subscription ID)",
+      "description": "Subscribe to event stream (FileChanged, SyncStarted, etc.)"
+    },
+    {
+      "name": "events.emit",
+      "params": {
+        "event": "string",
+        "data": "string (JSON)"
+      },
+      "returns": "null",
+      "description": "Emit event from WebView to sync engine"
     }
   ]
 }
@@ -76,7 +91,7 @@
   "jsonrpc": "2.0",
   "result": {
     "path": "/documents/test.txt",
-    "state": "Ghost",
+    "state": "ghost",
     "size": 1024,
     "modified": "2026-03-25T10:00:00Z"
   },
@@ -114,40 +129,50 @@
 
 ### FileNode (Rust ↔ C++)
 
-```rust
-// Stream C définit le type, Stream A sérialise/désérialise
+> **Source de vérité pour les types partagés.** Les STREAM_*.md et les design specs
+> doivent s'aligner sur ces définitions. Le modèle interne Rust utilise `Uuid` et
+> `OffsetDateTime` ; la sérialisation JSON produit `String` et ISO 8601.
 
-#[derive(Serialize, Deserialize, Debug)]
+```rust
+// Modèle interne Rust (sync-engine/src/models/)
+// Sérialise en String/ISO 8601 sur le fil JSON-RPC automatiquement.
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FileNode {
-    pub id: String,        // UUID v4 (string format)
-    pub path: String,      // Absolute path (/documents/test.txt)
-    pub state: FileState,  // Enum value
-    pub size: u64,         // Bytes (0 if Ghost)
-    pub modified: String,  // ISO 8601 timestamp
+    pub id: Uuid,              // UUID v4 (sérialisé en string JSON)
+    pub remote_id: Option<String>, // ID côté serveur Cozy (ex: "6a1ff9c8...")
+    pub path: String,          // Chemin relatif au mount point (/documents/test.txt)
+    pub state: FileState,      // Enum value
+    pub size: u64,             // Bytes (0 if Ghost)
+    pub modified: String,      // ISO 8601 timestamp
     pub is_dir: bool,
+    pub parent_id: Option<Uuid>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum FileState {
     Ghost,        // Metadata only, not downloaded
     Hydrated,     // Content on disk, in sync
     Modified,     // Local changes pending sync
     Syncing,      // In progress
+    Conflict,     // Conflict detected
     Error,        // Sync error
 }
 ```
 
-**Format JSON:**
+**Format JSON (sur le fil IPC):**
 
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
+  "remote_id": "6a1ff9c8e4b0a3d2",
   "path": "/documents/test.txt",
   "state": "ghost",
   "size": 1024,
   "modified": "2026-03-25T10:00:00Z",
-  "is_dir": false
+  "is_dir": false,
+  "parent_id": null
 }
 ```
 

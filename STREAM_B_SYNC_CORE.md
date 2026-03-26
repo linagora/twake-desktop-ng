@@ -37,7 +37,19 @@ serde_json = "1.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
 # FUSE
-fuse3 = "0.3"
+fuse3 = { version = "0.8", features = ["tokio-runtime", "unprivileged"] }
+
+# Byte buffers
+bytes = "1"
+
+# Futures
+futures-util = "0.3"
+
+# Libc
+libc = "0.2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
 
 # Database
 sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }
@@ -95,6 +107,7 @@ pub enum FileState {
     Hydrated,     // Content on disk, in sync
     Modified,     // Local changes pending sync
     Syncing,      // In progress
+    Conflict,     // Conflict detected
     Error,        // Sync error
 }
 
@@ -105,6 +118,7 @@ impl std::fmt::Display for FileState {
             FileState::Hydrated => write!(f, "hydrated"),
             FileState::Modified => write!(f, "modified"),
             FileState::Syncing => write!(f, "syncing"),
+            FileState::Conflict => write!(f, "conflict"),
             FileState::Error => write!(f, "error"),
         }
     }
@@ -118,17 +132,17 @@ impl std::fmt::Display for FileState {
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use std::path::PathBuf;
-use time::OffsetDateTime;
 
 use super::file_state::FileState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
     pub id: Uuid,
+    pub remote_id: Option<String>,
     pub path: String,
     pub state: FileState,
     pub size: u64,
-    pub modified: OffsetDateTime,
+    pub modified: String,
     pub is_dir: bool,
     pub parent_id: Option<Uuid>,
 }
@@ -137,10 +151,11 @@ impl FileNode {
     pub fn new_ghost(path: &str, is_dir: bool) -> Self {
         Self {
             id: Uuid::new_v4(),
+            remote_id: None,
             path: path.to_string(),
             state: FileState::Ghost,
             size: 0,
-            modified: OffsetDateTime::now_utc(),
+            modified: String::new(),
             is_dir,
             parent_id: None,
         }
@@ -180,7 +195,7 @@ impl From<&FileNode> for FileStatus {
             path: node.path.clone(),
             state: node.state,
             size: node.size,
-            modified: node.modified.to_rfc3339(),
+            modified: node.modified.clone(),
         }
     }
 }
@@ -249,7 +264,7 @@ pub enum VfsError {
 #[derive(Debug, Clone)]
 pub struct FileMetadata {
     pub size: u64,
-    pub modified: time::OffsetDateTime,
+    pub modified: String,
     pub is_dir: bool,
 }
 ```
@@ -315,6 +330,7 @@ impl VfsBackend for InMemoryVfs {
         let mut nodes = self.nodes.write().await;
         let node = FileNode {
             id: uuid::Uuid::new_v4(),
+            remote_id: None,
             path: path.to_str().unwrap().to_string(),
             state: FileState::Ghost,
             size: metadata.size,
@@ -361,85 +377,198 @@ impl VfsBackend for InMemoryVfs {
 
 ```rust
 // src/fuse/fuse_backend.rs
-use std::path::Path;
-use std::os::unix::ffi::OsStrExt;
-use fuse3::{FileSystem, Reply, Request};
-use fuse3::ffi::FileType;
+use std::ffi::{OsStr, OsString};
+use std::num::NonZeroU32;
+use std::time::{Duration, SystemTime};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use bytes::Bytes;
+use fuse3::raw::prelude::*;
+use fuse3::{MountOptions, Result as FuseResult};
+use futures_util::stream;
+use tokio::sync::RwLock;
 
 use crate::models::{FileNode, FileState};
-use crate::vfs::vfs_trait::{VfsBackend, VfsError, FileMetadata};
 
-pub struct FuseBackend {
-    vfs: Box<dyn VfsBackend>,
-    mount_point: String,
+const TTL: Duration = Duration::from_secs(1);
+const ROOT_INODE: u64 = 1;
+
+/// Maps between FUSE inodes (u64) and our FileNode model.
+/// fuse3 requires inode-based lookups, so we maintain a bidirectional mapping.
+pub struct TwakeFuseFs {
+    /// inode -> FileNode
+    nodes: Arc<RwLock<HashMap<u64, FileNode>>>,
+    /// path -> inode
+    path_to_inode: Arc<RwLock<HashMap<String, u64>>>,
+    /// parent_inode -> vec of child inodes
+    children: Arc<RwLock<HashMap<u64, Vec<u64>>>>,
+    next_inode: Arc<RwLock<u64>>,
 }
 
-impl FuseBackend {
-    pub fn new(vfs: Box<dyn VfsBackend>) -> Self {
+impl TwakeFuseFs {
+    pub fn new() -> Self {
         Self {
-            vfs,
-            mount_point: String::new(),
+            nodes: Arc::new(RwLock::new(HashMap::new())),
+            path_to_inode: Arc::new(RwLock::new(HashMap::new())),
+            children: Arc::new(RwLock::new(HashMap::new())),
+            next_inode: Arc::new(RwLock::new(ROOT_INODE + 1)),
+        }
+    }
+
+    /// Register a FileNode in the FUSE inode table. Called when syncing metadata.
+    pub async fn register_node(&self, node: FileNode, parent_inode: u64) -> u64 {
+        let mut next = self.next_inode.write().await;
+        let inode = *next;
+        *next += 1;
+
+        self.path_to_inode.write().await.insert(node.path.clone(), inode);
+        self.nodes.write().await.insert(inode, node);
+        self.children.write().await.entry(parent_inode).or_default().push(inode);
+        inode
+    }
+
+    fn make_attr(inode: u64, node: &FileNode) -> FileAttr {
+        let kind = if node.is_dir { FileType::Directory } else { FileType::RegularFile };
+        let perm = if node.is_dir { 0o755 } else { 0o644 };
+        let size = if node.state == FileState::Ghost { 0 } else { node.size };
+
+        FileAttr {
+            ino: inode,
+            size,
+            blocks: 0,
+            atime: SystemTime::now().into(),
+            mtime: SystemTime::now().into(),
+            ctime: SystemTime::now().into(),
+            kind,
+            perm,
+            nlink: if node.is_dir { 2 } else { 1 },
+            uid: unsafe { libc::getuid() },
+            gid: unsafe { libc::getgid() },
+            rdev: 0,
+            blksize: 0,
         }
     }
 }
 
-#[async_trait]
-impl FileSystem for FuseBackend {
-    type Error = VfsError;
-
-    async fn lookup(&self, req: &Request<'_>, parent: u64, name: &std::ffi::OsStr) -> Result<Reply::Lookup, Self::Error> {
-        let path = self.path_from_parent(parent, name);
-        let node = self.vfs.get_node(Path::new(&path)).await?;
-
-        Ok(Reply::Lookup {
-            entry: fuse3::Entry {
-                inode: node.id.as_u128() as u64,
-                generation: 1,
-                attr: self.node_to_attr(&node),
-                attr_timeout: 3600,
-                entry_timeout: 3600,
-            },
+impl Filesystem for TwakeFuseFs {
+    async fn init(&self, _req: Request) -> FuseResult<ReplyInit> {
+        Ok(ReplyInit {
+            max_write: NonZeroU32::new(16 * 1024).unwrap(),
         })
     }
 
-    async fn getattr(&self, req: &Request<'_>, ino: u64) -> Result<Reply::Attr, Self::Error> {
-        // Get inode from ID mapping
-        Ok(Reply::Attr {
-            attr: fuse3::Attr {
-                ino,
-                size: 0,
-                blocks: 0,
-                atime: 0,
-                mtime: 0,
-                ctime: 0,
-                atim: 0,
-                mtim: 0,
-                ctim: 0,
-                kind: FileType::RegularFile,
-                perm: 0o644,
-                nlink: 1,
-                uid: 1000,
-                gid: 1000,
-                rdev: 0,
-                flags: 0,
-            },
-            timeout: 3600,
+    async fn destroy(&self, _req: Request) {}
+
+    async fn lookup(&self, _req: Request, parent: u64, name: &OsStr) -> FuseResult<ReplyEntry> {
+        let children = self.children.read().await;
+        let nodes = self.nodes.read().await;
+
+        if let Some(child_inodes) = children.get(&parent) {
+            for &inode in child_inodes {
+                if let Some(node) = nodes.get(&inode) {
+                    let node_name = std::path::Path::new(&node.path)
+                        .file_name()
+                        .unwrap_or_default();
+                    if node_name == name {
+                        return Ok(ReplyEntry {
+                            ttl: TTL,
+                            attr: Self::make_attr(inode, node),
+                            generation: 0,
+                        });
+                    }
+                }
+            }
+        }
+        Err(libc::ENOENT.into())
+    }
+
+    async fn getattr(
+        &self, _req: Request, inode: u64, _fh: Option<u64>, _flags: u32,
+    ) -> FuseResult<ReplyAttr> {
+        if inode == ROOT_INODE {
+            return Ok(ReplyAttr {
+                ttl: TTL,
+                attr: FileAttr {
+                    ino: ROOT_INODE, size: 0, blocks: 0,
+                    atime: SystemTime::now().into(),
+                    mtime: SystemTime::now().into(),
+                    ctime: SystemTime::now().into(),
+                    kind: FileType::Directory, perm: 0o755,
+                    nlink: 2,
+                    uid: unsafe { libc::getuid() },
+                    gid: unsafe { libc::getgid() },
+                    rdev: 0, blksize: 0,
+                },
+            });
+        }
+
+        let nodes = self.nodes.read().await;
+        let node = nodes.get(&inode).ok_or_else(|| fuse3::Errno::from(libc::ENOENT))?;
+        Ok(ReplyAttr { ttl: TTL, attr: Self::make_attr(inode, node) })
+    }
+
+    async fn open(&self, _req: Request, inode: u64, flags: u32) -> FuseResult<ReplyOpen> {
+        let nodes = self.nodes.read().await;
+        if !nodes.contains_key(&inode) && inode != ROOT_INODE {
+            return Err(libc::ENOENT.into());
+        }
+        // TODO: trigger hydration here if state == Ghost
+        Ok(ReplyOpen { fh: 0, flags })
+    }
+
+    async fn read(
+        &self, _req: Request, inode: u64, _fh: u64, offset: u64, size: u32,
+    ) -> FuseResult<ReplyData> {
+        let nodes = self.nodes.read().await;
+        let node = nodes.get(&inode).ok_or_else(|| fuse3::Errno::from(libc::ENOENT))?;
+
+        if node.state == FileState::Ghost {
+            // File not hydrated yet — return EIO to signal the app
+            // In production, this triggers async hydration instead
+            return Err(libc::EIO.into());
+        }
+
+        // TODO: read actual file content from cache directory
+        // For MVP, return empty
+        Ok(ReplyData { data: Bytes::new() })
+    }
+
+    async fn readdir(
+        &self, _req: Request, inode: u64, _fh: u64, offset: i64,
+    ) -> FuseResult<ReplyDirectory<impl Stream<Item = FuseResult<DirectoryEntry>> + Send + '_>> {
+        let mut entries = vec![
+            Ok(DirectoryEntry {
+                inode, kind: FileType::Directory,
+                name: OsString::from("."), offset: 1,
+            }),
+            Ok(DirectoryEntry {
+                inode, kind: FileType::Directory,
+                name: OsString::from(".."), offset: 2,
+            }),
+        ];
+
+        let children = self.children.read().await;
+        let nodes = self.nodes.read().await;
+
+        if let Some(child_inodes) = children.get(&inode) {
+            for (i, &child_ino) in child_inodes.iter().enumerate() {
+                if let Some(node) = nodes.get(&child_ino) {
+                    let kind = if node.is_dir { FileType::Directory } else { FileType::RegularFile };
+                    let name = std::path::Path::new(&node.path)
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_os_string();
+                    entries.push(Ok(DirectoryEntry {
+                        inode: child_ino, kind, name, offset: (i + 3) as i64,
+                    }));
+                }
+            }
+        }
+
+        Ok(ReplyDirectory {
+            entries: stream::iter(entries.into_iter().skip(offset as usize)),
         })
-    }
-
-    async fn readdir(&self, req: &Request<'_>, ino: u64, offset: i64) -> Result<Reply::Entry, Self::Error> {
-        // List directory entries
-        Ok(Reply::Entry { entries: vec![] })
-    }
-
-    async fn open(&self, req: &Request<'_>, ino: u64, flags: i32) -> Result<Reply::Open, Self::Error> {
-        // Trigger hydration if ghost
-        Ok(Reply::Open { fh: 0, flags: flags as u32 })
-    }
-
-    async fn read(&self, req: &Request<'_>, ino: u64, fh: u64, offset: i64, size: u32) -> Result<Reply::Data, Self::Error> {
-        // Read file content
-        Ok(Reply::Data { data: vec![] })
     }
 }
 ```
@@ -450,17 +579,24 @@ impl FileSystem for FuseBackend {
 // src/fuse/mod.rs
 pub mod fuse_backend;
 
-use std::path::Path;
-use tokio::process::Command;
+use fuse3::raw::Session;
+use fuse3::MountOptions;
 
-pub async fn mount_fuse(mount_point: &Path) -> Result<(), std::io::Error> {
-    // Create mount point
-    tokio::fs::create_dir_all(mount_point).await?;
+pub async fn mount_fuse(
+    fs: fuse_backend::TwakeFuseFs,
+    mount_point: &str,
+) -> Result<fuse3::raw::MountHandle, Box<dyn std::error::Error>> {
+    let uid = unsafe { libc::getuid() };
+    let gid = unsafe { libc::getgid() };
 
-    // Mount FUSE filesystem
-    // For MVP, we'll use a simpler approach with fuse3
+    let mut mount_options = MountOptions::default();
+    mount_options.uid(uid).gid(gid).fs_name("twake");
 
-    Ok(())
+    let mount_handle = Session::new(mount_options)
+        .mount_with_unprivileged(fs, mount_point)
+        .await?;
+
+    Ok(mount_handle)
 }
 ```
 
@@ -472,32 +608,30 @@ use std::path::PathBuf;
 use clap::Parser;
 use tracing::info;
 
-use twake_sync::fuse::fuse_backend::FuseBackend;
-use twake_sync::vfs::vfs_trait::VfsBackend;
-use twake_sync::models::InMemoryVfs;
+use twake_sync::fuse::fuse_backend::TwakeFuseFs;
+use twake_sync::fuse::mount_fuse;
 
 #[derive(Parser, Debug)]
 struct Args {
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "~/TwakeSync")]
     mount: PathBuf,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
-
     tracing_subscriber::fmt::init();
 
-    let vfs = InMemoryVfs::new();
-    let fuse = FuseBackend::new(Box::new(vfs));
+    let args = Args::parse();
+
+    let fs = TwakeFuseFs::new();
 
     info!("Mounting FUSE at {:?}", args.mount);
-    fuse.mount(&args.mount).await?;
+    let mount_handle = mount_fuse(fs, args.mount.to_str().unwrap()).await?;
 
-    // Keep running
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    }
+    info!("FUSE mounted. Press Ctrl+C to unmount.");
+    mount_handle.await?;
+
+    Ok(())
 }
 ```
 
@@ -515,6 +649,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 -- sync-engine/migrations/001_initial.sql
 CREATE TABLE IF NOT EXISTS file_nodes (
     id TEXT PRIMARY KEY,
+    remote_id TEXT,
     path TEXT UNIQUE NOT NULL,
     state TEXT NOT NULL,
     size INTEGER NOT NULL DEFAULT 0,
@@ -563,14 +698,15 @@ impl FileRepository {
 
     pub async fn insert(&self, node: &FileNode) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT OR REPLACE INTO file_nodes (id, path, state, size, modified, is_dir, parent_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT OR REPLACE INTO file_nodes (id, remote_id, path, state, size, modified, is_dir, parent_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(node.id.to_string())
+        .bind(&node.remote_id)
         .bind(&node.path)
         .bind(node.state.to_string())
         .bind(node.size as i64)
-        .bind(node.modified.to_rfc3339())
+        .bind(&node.modified)
         .bind(node.is_dir as i32)
         .bind(node.parent_id.map(|id| id.to_string()))
         .execute(&self.pool)
@@ -591,12 +727,11 @@ impl FileRepository {
         Ok(())
     }
 
-    pub async fn list_dir(&self, path: &str) -> Result<Vec<FileNode>, sqlx::Error> {
+    pub async fn list_dir(&self, parent_path: &str) -> Result<Vec<FileNode>, sqlx::Error> {
         let nodes = sqlx::query_as::<_, FileNode>(
-            "SELECT * FROM file_nodes WHERE path LIKE ? || '%' AND path != ?"
+            "SELECT * FROM file_nodes WHERE parent_id = (SELECT id FROM file_nodes WHERE path = ?)"
         )
-        .bind(path)
-        .bind(path)
+        .bind(parent_path)
         .fetch_all(&self.pool)
         .await?;
 
@@ -728,16 +863,18 @@ impl IpcHandlers {
 ```rust
 // src/bin/twake-vfs.rs
 use std::path::PathBuf;
+use std::sync::Arc;
 use clap::Parser;
 use tracing::info;
 
 use twake_sync::db::repository::FileRepository;
 use twake_sync::services::hydration::HydrationService;
-use twake_sync::models::InMemoryVfs;
+use twake_sync::vfs::InMemoryVfs;
+use twake_sync::vfs::vfs_trait::FileMetadata;
 
 #[derive(Parser, Debug)]
 struct Args {
-    #[arg(short, long, default_value = "/mnt/twake")]
+    #[arg(short, long, default_value = "~/TwakeSync")]
     mount: PathBuf,
 
     #[arg(short, long, default_value = "sqlite:twake.db")]
@@ -750,17 +887,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing_subscriber::fmt::init();
 
-    // Initialize components
-    let vfs = Box::new(InMemoryVfs::new());
+    // Initialize components — use Arc for shared ownership
+    let vfs = Arc::new(InMemoryVfs::new());
     let repo = FileRepository::new(&args.database).await?;
     let hydration = HydrationService::new(vfs.clone(), repo);
 
     // Create test data
-    hydration.vfs.create_placeholder(
-        PathBuf::from("/mnt/twake/test.txt").as_path(),
+    vfs.create_placeholder(
+        PathBuf::from("~/TwakeSync/test.txt").as_path(),
         FileMetadata {
             size: 1024,
-            modified: time::OffsetDateTime::now_utc(),
+            modified: String::from("2026-01-01T00:00:00Z"),
             is_dir: false,
         },
     ).await?;
@@ -781,11 +918,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 # test-hydration.sh
 
 echo "1. Mounting FUSE..."
-sudo ./target/release/twake-vfs --mount /mnt/twake &
+./target/release/twake-vfs --mount ~/TwakeSync &
 sleep 2
 
 echo "2. Listing files..."
-ls -la /mnt/twake/
+ls -la ~/TwakeSync/
 
 echo "3. Checking file status..."
 # IPC call to get status
@@ -794,7 +931,7 @@ echo "4. Hydrating file..."
 # IPC call to hydrate
 
 echo "5. File content..."
-cat /mnt/twake/test.txt
+cat ~/TwakeSync/test.txt
 ```
 
 **Tâche B2.7: Demo data**
@@ -807,18 +944,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create test structure
     vfs.create_placeholder(
-        Path::new("/mnt/twake/documents/test.txt"),
-        FileMetadata { size: 1024, modified: now(), is_dir: false },
+        Path::new("~/TwakeSync/documents/test.txt"),
+        FileMetadata { size: 1024, modified: String::from("2026-01-01T00:00:00Z"), is_dir: false },
     ).await?;
 
     vfs.create_placeholder(
-        Path::new("/mnt/twake/documents/photo.jpg"),
-        FileMetadata { size: 102400, modified: now(), is_dir: false },
+        Path::new("~/TwakeSync/documents/photo.jpg"),
+        FileMetadata { size: 102400, modified: String::from("2026-01-01T00:00:00Z"), is_dir: false },
     ).await?;
 
     vfs.create_placeholder(
-        Path::new("/mnt/twake/shared"),
-        FileMetadata { size: 0, modified: now(), is_dir: true },
+        Path::new("~/TwakeSync/shared"),
+        FileMetadata { size: 0, modified: String::from("2026-01-01T00:00:00Z"), is_dir: true },
     ).await?;
 
     Ok(())
@@ -836,7 +973,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 cargo build --release
 
 # Run FUSE
-sudo ./target/release/twake-vfs --mount /mnt/twake
+./target/release/twake-vfs --mount ~/TwakeSync
 
 # Run tests
 cargo test
@@ -857,6 +994,6 @@ cargo test
 
 ## Known Issues
 
-- **FUSE permissions:** Need sudo for mount
-- **fuse3 crate:** May need system FUSE dev headers
+- **FUSE permissions:** Uses fusermount3 (unprivileged), no sudo needed. Install: `apt install fuse3`
+- **fuse3 crate:** Needs `libfuse3-dev` (`apt install libfuse3-dev`)
 - **SQLite:** File-based, no concurrent writes

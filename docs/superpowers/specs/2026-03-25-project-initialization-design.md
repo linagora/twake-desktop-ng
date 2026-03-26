@@ -166,10 +166,10 @@ pub enum FileState {
     Hydrated,     // Content on disk, in sync
     Modified,     // Local changes pending sync
     Syncing,      // In progress
-    Synced,       // Synced to remote (final state after sync)
     Conflict,     // Conflict detected
     Error,        // Sync error
 }
+// Source de vérité : INTERFACES.md — 6 variantes (pas de Synced, Hydrated suffit)
 ```
 
 ```rust
@@ -183,10 +183,11 @@ use super::file_state::FileState;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
     pub id: Uuid,
+    pub remote_id: Option<String>,  // ID côté serveur Cozy
     pub path: String,
     pub state: FileState,
     pub size: u64,
-    pub modified: OffsetDateTime,
+    pub modified: String,  // ISO 8601
     pub is_dir: bool,
     pub parent_id: Option<Uuid>,
 }
