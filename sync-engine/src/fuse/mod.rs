@@ -2,7 +2,6 @@ pub mod fuse_backend;
 
 use fuse3::raw::Session;
 use fuse3::MountOptions;
-use std::path::Path;
 
 pub async fn mount_fuse(
     fs: fuse_backend::TwakeFuseFs,
