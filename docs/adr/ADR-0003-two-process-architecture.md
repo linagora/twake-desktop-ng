@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-0004](ADR-0004-electron-migration.md) — CEF replaced by Electron; two-process architecture retained.
 
 ## Context
 

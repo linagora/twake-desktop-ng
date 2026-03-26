@@ -1,48 +1,42 @@
 # Contrats d'Interface - Hackathon 48h
 
-**Date:** 2026-03-25  
-**Objectif:** Définir les interfaces entre les 3 streams pour travail parallèle
+**Date:** 2026-03-26
+**Objectif:** Definir les interfaces entre les 3 streams pour travail parallele
 
 ---
 
 ## 1. Contrat IPC (JSON-RPC)
 
-**Responsable:** Stream C  
-**Deadline:** Jour 1, 10:00 (2h après démarrage)
+**Responsable:** Stream C
+**Deadline:** Jour 1, 10:00 (2h apres demarrage)
 
 ### Transport
 
-- **Unix socket:** `/tmp/twake-ipc.sock` (Linux)
+- **Unix socket:** `/tmp/twake-ipc.sock` (Linux) -- ou `$XDG_RUNTIME_DIR/twake-ipc.sock`
+- **Named pipe:** `\\.\pipe\twake-ipc` (Windows)
 - **Protocol:** JSON-RPC 2.0
 - **Encoding:** UTF-8
 
-### Méthodes (6 méthodes pour MVP)
+### Methodes (6 methodes pour MVP)
 
 ```json
 {
   "methods": [
     {
       "name": "file.status",
-      "params": {
-        "path": "string"
-      },
+      "params": { "path": "string" },
       "returns": "FileStatus",
       "description": "Get file state (Ghost/Hydrated/Modified/Syncing/Conflict/Error)"
     },
     {
       "name": "file.hydrate",
-      "params": {
-        "path": "string"
-      },
+      "params": { "path": "string" },
       "returns": "{ success: boolean, error?: string }",
       "description": "Download file content from remote"
     },
     {
       "name": "file.list",
-      "params": {
-        "path": "string",
-        "recursive": "boolean (default: false)"
-      },
+      "params": { "path": "string", "recursive": "boolean (default: false)" },
       "returns": "FileNode[]",
       "description": "List directory contents"
     },
@@ -60,18 +54,15 @@
     },
     {
       "name": "events.emit",
-      "params": {
-        "event": "string",
-        "data": "string (JSON)"
-      },
+      "params": { "event": "string", "data": "string (JSON)" },
       "returns": "null",
-      "description": "Emit event from WebView to sync engine"
+      "description": "Emit event from shell to sync engine"
     }
   ]
 }
 ```
 
-### Format des Requêtes
+### Format des Requetes
 
 **Request:**
 
@@ -114,33 +105,33 @@
 
 ### Error Codes
 
-| Code   | Message                 |
-| ------ | ----------------------- |
-| -32000 | File not found          |
-| -32001 | Permission denied       |
-| -32002 | Network error           |
-| -32003 | Authentication required |
-| -32600 | Invalid request         |
-| -32601 | Method not found        |
+| Code   | Message                |
+| ------ | ---------------------- |
+| -32000 | File not found         |
+| -32001 | Permission denied      |
+| -32002 | Network error          |
+| -32003 | Authentication required|
+| -32600 | Invalid request        |
+| -32601 | Method not found       |
 
 ---
 
-## 2. Types de Données Partagés
+## 2. Types de Donnees Partages
 
-### FileNode (Rust ↔ C++)
+### FileNode (Rust ↔ TypeScript)
 
-> **Source de vérité pour les types partagés.** Les STREAM\_\*.md et les design specs
-> doivent s'aligner sur ces définitions. Le modèle interne Rust utilise `Uuid` et
-> `OffsetDateTime` ; la sérialisation JSON produit `String` et ISO 8601.
+> **Source de verite pour les types partages.** Les STREAM_*.md et les design specs
+> doivent s'aligner sur ces definitions. Le modele interne Rust utilise `Uuid` et
+> `OffsetDateTime` ; la serialisation JSON produit `String` et ISO 8601.
 
 ```rust
-// Modèle interne Rust (sync-engine/src/models/)
-// Sérialise en String/ISO 8601 sur le fil JSON-RPC automatiquement.
+// Modele interne Rust (sync-engine/src/models/)
+// Serialise en String/ISO 8601 sur le fil JSON-RPC automatiquement.
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FileNode {
-    pub id: Uuid,              // UUID v4 (sérialisé en string JSON)
-    pub remote_id: Option<String>, // ID côté serveur Cozy (ex: "6a1ff9c8...")
+    pub id: Uuid,              // UUID v4 (serialise en string JSON)
+    pub remote_id: Option<String>, // ID cote serveur (ex: "6a1ff9c8...")
     pub path: String,          // Chemin relatif au mount point (/documents/test.txt)
     pub state: FileState,      // Enum value
     pub size: u64,             // Bytes (0 if Ghost)
@@ -176,7 +167,7 @@ pub enum FileState {
 }
 ```
 
-### Event Types (Rust → C++)
+### Event Types (Rust → Electron)
 
 ```rust
 #[derive(Serialize, Deserialize, Debug)]
@@ -214,55 +205,76 @@ pub enum TwakeEvent {
 
 ## 3. Bridge JavaScript API
 
-**Responsable:** Stream A  
-**Implémenté par:** Stream A  
-**Consommé par:** WebApps Twake
+**Responsable:** Stream A
+**Implemente par:** Stream A (preload.ts + contextBridge)
+**Consomme par:** Local SPA et WebApps Twake
 
-```javascript
-// Injecté dans chaque WebView Twake
-window.__twake = {
-  // Synchronous (blocking, use sparingly)
-  getFileStatus(path: string): FileStatus,
+```typescript
+// Expose via contextBridge.exposeInMainWorld('__twake', {...})
+// Available dans le renderer comme window.__twake
 
-  // Asynchronous (preferred)
-  async hydrateFile(path: string): Promise<{ success: boolean, error?: string }>,
-  async listFiles(path: string, recursive: boolean): Promise<FileNode[]>,
-  async getToken(): Promise<{ access_token: string, expires_in: number }>,
+interface TwakeBridge {
+  // File operations (async — delegated to Rust via main process)
+  getFileStatus(path: string): Promise<FileStatus>;
+  hydrateFile(path: string): Promise<{ success: boolean; error?: string }>;
+  listFiles(path: string, recursive?: boolean): Promise<FileNode[]>;
 
-  // Event subscription
-  on(event: string, callback: (data: any) => void): void,
-  off(event: string, callback: (data: any) => void): void,
-};
+  // Authentication
+  getToken(): Promise<{ access_token: string; expires_in: number } | null>;
+  startAuth(): Promise<{ access_token: string; expires_in: number }>;
 
-// Exemple d'utilisation
-const status = window.__twake.getFileStatus('/documents/test.txt');
+  // Event subscription (events pushed from Rust via main process)
+  on(event: string, callback: (data: any) => void): () => void; // Returns unsubscribe function
+}
+
+// Usage
+const status = await window.__twake.getFileStatus('/documents/test.txt');
 console.log('State:', status.state); // "ghost" or "hydrated"
 
 await window.__twake.hydrateFile('/documents/test.txt');
 console.log('File downloaded!');
 
-window.__twake.on('file_changed', (data) => {
+const unsubscribe = window.__twake.on('file_changed', (data) => {
   console.log('File changed:', data.path, data.state);
 });
+// Later: unsubscribe();
+```
+
+**Flux des donnees:**
+
+```
+Renderer (SPA)
+  → window.__twake.hydrateFile('/test.txt')
+  → contextBridge (preload.ts)
+  → ipcRenderer.invoke('twake:file:hydrate', '/test.txt')
+  → Main process (ipc-bridge.ts)
+  → SidecarManager.call('file.hydrate', { path: '/test.txt' })
+  → Unix socket JSON-RPC
+  → Rust sync engine
+  → VFS hydrate
+  → Response JSON-RPC
+  → Main process
+  → ipcRenderer response
+  → contextBridge
+  → Promise resolved in SPA
 ```
 
 ---
 
 ## 4. FUSE Mount Point
 
-**Responsable:** Stream B  
+**Responsable:** Stream B
 **Deadline:** Jour 1, 14:00
 
 ### Mount Point
 
-- **Path:** `/mnt/twake` (configurable)
-- **Permissions:** 777 (MVP, pas de security)
-- **User:** root (sudo pour mount)
+- **Path:** `~/TwakeSync` (configurable, default)
+- **Permissions:** User-owned (fusermount3, pas de sudo)
 
 ### Structure
 
 ```
-/mnt/twake/
+~/TwakeSync/
 ├── documents/
 │   ├── test.txt          (Ghost → placeholder)
 │   ├── photo.jpg         (Ghost → placeholder)
@@ -295,18 +307,23 @@ window.__twake.on('file_changed', (data) => {
 
 ### Fichiers Source
 
-**Stream A (C++):**
+**Stream A (Electron/TypeScript):**
 
 ```
-src/cef/
-  app/
-    browser_app.cpp/h
-    render_app.cpp/h
-  browser/
-    window_manager.cpp/h
-    js_bridge.cpp/h
-  ipc/
-    ipc_client.cpp/h
+electron-shell/
+  src/
+    main.ts
+    preload.ts
+    windows.ts
+    protocol.ts
+    ipc-bridge.ts
+    sidecar.ts
+    auth.ts
+    tray.ts
+  renderer/
+    index.html
+    app.js
+    styles.css
 ```
 
 **Stream B (Rust):**
@@ -336,15 +353,14 @@ sync-engine/
       bus.rs
 ```
 
-### Fonctions/Méthodes
+### Fonctions/Methodes
 
-**C++:** `camelCase` pour méthodes, `PascalCase` pour classes
+**TypeScript:** `camelCase` pour fonctions/methodes, `PascalCase` pour classes
 
-```cpp
-class JsBridge {
-  void injectBridge(CefRefPtr<CefBrowser> browser);
-  std::string getFileStatus(const std::string& path);
-};
+```typescript
+class SidecarManager {
+  async call(method: string, params: object): Promise<unknown>;
+}
 ```
 
 **Rust:** `snake_case` pour tout
@@ -354,54 +370,54 @@ fn get_file_status(path: &str) -> Result<FileStatus>;
 async fn hydrate_file(path: &str) -> Result<()>;
 ```
 
-**JavaScript:** `camelCase`
+**JavaScript (SPA):** `camelCase`
 
 ```javascript
-getFileStatus(path);
-hydrateFile(path);
+window.__twake.getFileStatus(path);
+window.__twake.hydrateFile(path);
 ```
 
 ---
 
 ## 6. Points de Synchronisation
 
-### Jour 1 — 10:00 (2h après démarrage)
+### Jour 1 -- 10:00 (2h apres demarrage)
 
-**Objectif:** Contrat IPC validé
+**Objectif:** Contrat IPC valide
 
 **Stream C livre:**
 
 - [ ] `contract.rs` avec JSON-RPC schema
 - [ ] Types Rust (FileNode, FileState, Event)
-- [ ] Exemple de requête/réponse
+- [ ] Exemple de requete/reponse
 
-**Stream A vérifie:**
+**Stream A verifie:**
 
-- [ ] Peut sérialiser/désérialiser les types
-- [ ] IPC client peut appeler les méthodes
+- [ ] Peut serialiser/deserialiser les types en TypeScript
+- [ ] IPC bridge mock repond correctement
 
-**Stream B vérifie:**
+**Stream B verifie:**
 
 - [ ] FileNode correspond aux besoins FUSE
-- [ ] Méthodes suffisantes pour VFS operations
+- [ ] Methodes suffisantes pour VFS operations
 
 ---
 
-### Jour 1 — 14:00 (6h après démarrage)
+### Jour 1 -- 14:00 (6h apres demarrage)
 
 **Objectif:** IPC server + FUSE mount fonctionnels
 
 **Stream C livre:**
 
-- [ ] IPC server écoute sur `/tmp/twake-ipc.sock`
-- [ ] Méthode `file.status` renvoie dummy data
+- [ ] IPC server ecoute sur Unix socket
+- [ ] Methode `file.status` renvoie dummy data
 
 **Stream B livre:**
 
-- [ ] FUSE mount point `/mnt/twake` créé
+- [ ] FUSE mount point cree
 - [ ] Placeholder files visibles dans mount point
 
-**Test d'intégration:**
+**Test d'integration:**
 
 ```bash
 # Stream A appelle Stream C
@@ -410,49 +426,51 @@ curl -X POST --unix-socket /tmp/twake-ipc.sock \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"file.status","params":{"path":"/test.txt"},"id":1}'
 
-# Stream B vérifie FUSE
-ls -la /mnt/twake/
+# Stream B verifie FUSE
+ls -la ~/TwakeSync/
 ```
 
 ---
 
-### Jour 1 — 18:00 (Fin de journée 1)
+### Jour 1 -- 18:00 (Fin de journee 1)
 
 **Objectif:** End-to-end test
 
 **Test:**
 
-1. Stream A: WebView appelle `window.__twake.getFileStatus("/test.txt")`
-2. Stream C: IPC server reçoit requête
-3. Stream B: FUSE retourne FileNode
-4. Stream C: Réponse remontée à Stream A
-5. Stream A: Console JS affiche statut
+1. Stream A: SPA appelle `window.__twake.getFileStatus("/test.txt")`
+2. Stream A: ipc-bridge.ts forward au sidecar (ou mock)
+3. Stream C: IPC server recoit requete
+4. Stream B: VFS retourne FileNode
+5. Stream A: SPA affiche statut
 
-**Critère de succès:**
+**Critere de succes:**
 
 - [ ] Test passe sans crash
-- [ ] Réponse en < 100ms
+- [ ] Reponse en < 100ms
 - [ ] Aucun deadlock
 
 ---
 
-### Jour 2 — 12:00 (Milieu journée 2)
+### Jour 2 -- 12:00 (Milieu journee 2)
 
-**Objectif:** Hydrate fonctionnel
+**Objectif:** Auth + Hydrate fonctionnels
 
 **Test:**
 
-1. Stream A: WebView click sur ghost file
-2. Stream A: `window.__twake.hydrateFile("/test.txt")`
-3. Stream C: IPC appelle download
-4. Stream B: FUSE écrit fichier sur disk
-5. Stream A: File icon change
+1. Stream A: Clic sur "Login" dans la SPA
+2. Stream A: OIDC PKCE flow (fenetre auth)
+3. Stream A: Token recupere et affiche
+4. Stream A: `window.__twake.hydrateFile("/test.txt")`
+5. Stream C: IPC appelle download
+6. Stream B: VFS ecrit fichier sur disque
 
-**Critère de succès:**
+**Critere de succes:**
 
-- [ ] Fichier télécharge et s'écrit
+- [ ] Auth OIDC fonctionne
+- [ ] Token affiche dans la SPA
+- [ ] Fichier telecharge et ecrit
 - [ ] State transition Ghost → Hydrated
-- [ ] Fichier lisible après hydrate
 
 ---
 
@@ -460,11 +478,11 @@ ls -la /mnt/twake/
 
 ### Format de Logs
 
-**Stream A (C++):**
+**Stream A (TypeScript):**
 
-```cpp
-LOG(INFO) << "[CEF] Bridge injected for browser " << browser_id;
-LOG(ERROR) << "[CEF] IPC connection failed: " << error_msg;
+```typescript
+console.log('[electron:main] Bridge injected for window', windowId);
+console.error('[electron:sidecar] Connection failed:', error);
 ```
 
 **Stream B/C (Rust):**
@@ -479,13 +497,13 @@ error!("[IPC] Method not found: {}", method);
 - **ERROR:** Crash, disconnect, auth failure
 - **WARN:** Retry, fallback, slow operation
 - **INFO:** Startup, shutdown, key operations
-- **DEBUG:** Detailed flow (MVP: désactivé)
+- **DEBUG:** Detailed flow (MVP: desactive)
 
 ---
 
 ## 8. Backup Plans
 
-### Si IPC échoue
+### Si IPC echoue
 
 **Fallback:** Communication via fichiers temporaires
 
@@ -499,7 +517,7 @@ Polling toutes les 100ms (lent mais fonctionnel)
 
 ---
 
-### Si FUSE échoue
+### Si FUSE echoue
 
 **Fallback:** Dossier normal (pas VFS)
 
@@ -509,37 +527,33 @@ Polling toutes les 100ms (lent mais fonctionnel)
 └── shared/
 ```
 
-Files sont toujours hydratés (pas de placeholders)
+Files sont toujours hydrates (pas de placeholders)
 
 ---
 
-### Si CEF échoue
+### Si Electron echoue
 
-**Fallback:** Electron (si npm install rapide)
-
-```bash
-npm install electron
-# Utiliser Electron au lieu de CEF
-```
+**Fallback:** Pas de fallback necessaire -- Electron est le choix technologique consolide.
 
 ---
 
 ## 9. Checklist de Validation
 
-### Jour 1 — 23:00
+### Jour 1 -- 23:00
 
-- [ ] Contrat IPC écrit et validé par les 3 streams
-- [ ] IPC server répond aux requêtes
-- [ ] FUSE mount visible (`ls /mnt/twake`)
-- [ ] Bridge JS injecté dans WebView
-- [ ] IPC client peut appeler méthode
+- [ ] Contrat IPC ecrit et valide par les 3 streams
+- [ ] IPC server repond aux requetes
+- [ ] FUSE mount visible (`ls ~/TwakeSync`)
+- [ ] contextBridge injecte dans la SPA
+- [ ] Sidecar manager peut se connecter
 - [ ] End-to-end test passe
 
-### Jour 2 — 23:00
+### Jour 2 -- 23:00
 
 - [ ] Auth OIDC fonctionne
+- [ ] Token visible dans la SPA
 - [ ] Ghost files visibles dans FUSE
-- [ ] Hydrate télécharge fichier
+- [ ] Hydrate telecharge fichier
 - [ ] File state transitionne correctement
 - [ ] Demo de 5 minutes sans crash
 
@@ -549,20 +563,20 @@ npm install electron
 
 **Blockers > 30min:**
 
-1. Essayer de résoudre soi-même
+1. Essayer de resoudre soi-meme
 2. Slack channel #hackathon
-3. Si pas de réponse en 15min → tous les devs se réunissent
+3. Si pas de reponse en 15min → tous les devs se reunissent
 
 **Changes aux interfaces:**
 
 - Slack channel #hackathon
-- Mettre à jour ce document
+- Mettre a jour ce document
 - Tous les streams doivent valider
 
 **Points de sync obligatoires:**
 
-- Jour 1, 10:00 — Contrat IPC
-- Jour 1, 14:00 — IPC + FUSE
-- Jour 1, 18:00 — End-to-end
-- Jour 2, 12:00 — Hydrate
-- Jour 2, 18:00 — Demo prep
+- Jour 1, 10:00 -- Contrat IPC
+- Jour 1, 14:00 -- IPC + FUSE
+- Jour 1, 18:00 -- End-to-end
+- Jour 2, 12:00 -- Auth + Hydrate
+- Jour 2, 18:00 -- Demo prep

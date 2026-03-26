@@ -36,11 +36,12 @@ Use this template for new ADRs:
 
 ## ADR Index
 
-| ID   | Title                                 | Status   | Date       |
-| ---- | ------------------------------------- | -------- | ---------- |
-| 0001 | Project structure and documentation   | Accepted | 2026-03-25 |
-| 0002 | Authentication flow (OIDC PKCE)       | Proposed | 2026-03-25 |
-| 0003 | Two-process architecture (CEF + Rust) | Accepted | 2026-03-25 |
+| ID   | Title                                    | Status                          | Date       |
+| ---- | ---------------------------------------- | ------------------------------- | ---------- |
+| 0001 | Project structure and documentation      | Accepted                        | 2026-03-25 |
+| 0002 | Authentication flow (OIDC PKCE)          | Proposed                        | 2026-03-25 |
+| 0003 | Two-process architecture (CEF + Rust)    | Superseded by ADR-0004          | 2026-03-25 |
+| 0004 | Migration to Electron                    | Accepted                        | 2026-03-26 |
 
 ## How to Use
 

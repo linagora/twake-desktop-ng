@@ -2,144 +2,92 @@
 
 **Date:** 2026-03-26
 **Reviewer:** Claude (audit automatise)
-**Scope:** Ensemble de la documentation projet
+**Scope:** Ensemble de la documentation projet (post-migration Electron)
 
 ---
 
-## 1. Structure et organisation
+## 1. Changements effectues (migration CEF → Electron)
 
-**Points forts :**
+### Documents crees
+- `docs/adr/ADR-0004-electron-migration.md` -- Decision de migration avec analyse securite/performance
+- `docs/superpowers/specs/electron-shell-design.md` -- Design spec du shell Electron
+- `STREAM_A_ELECTRON.md` -- Guide d'implementation du shell Electron
 
-- Hierarchie claire : spec -> design specs -> plans -> ADR
-- Le `docs/spec.md` (v5.0 Final) sert bien de document chapeau qui pointe vers les specs detaillees
-- Les ADR sont bien structures avec un template et un index
+### Documents mis a jour
+- `docs/spec.md` (v5.0 → v6.0) -- Architecture Electron, securite, performance
+- `docs/adr/ADR-0003` -- Marque comme superseded par ADR-0004
+- `docs/adr/README.md` -- Index mis a jour
+- `PLAN.md` -- Stream A mis a jour pour Electron/TypeScript
+- `PLAN_HACKATON.md` -- Mis a jour pour Electron
+- `INTERFACES.md` -- Types de donnees, bridge API, conventions TypeScript
+- `docs/superpowers/specs/ipc-contract-design.md` -- Client TypeScript, data flow
+- `docs/superpowers/specs/2026-03-25-project-initialization-design.md` -- Structure repo Electron
 
-**Problemes identifies :**
+### Documents supprimes
+- `STREAM_A_CEF.md` -- Remplace par `STREAM_A_ELECTRON.md`
 
-- **Cohabitation `spec.md` (v5.0) et `spec-draft.md` (v2.0)** — Le draft contient du contenu important absent de la spec finale (matrice CEF/Electron detaillee, analyse des risques, section "What to Avoid", architecture notification). On ne sait pas s'il est obsolete ou complementaire. Il mentionne encore Tauri dans son tableau d'avantages techniques (ligne 293 : "Tauri + Rust -- 10MB install, 30MB RAM") alors que CEF a ete choisi.
-
-- **Documents racine vs docs/** — Les fichiers `PLAN.md`, `STREAM_*.md`, `INTERFACES.md` sont a la racine tandis que les specs sont dans `docs/superpowers/specs/`. L'ADR-0001 documente cette decision, mais le resultat est un eclatement sur 3 niveaux (racine, docs/, docs/superpowers/).
-
-- **Pas de README.md a la racine** — Aucun point d'entree pour un nouveau developpeur.
-
----
-
-## 2. Coherence des donnees entre documents
-
-### FileState (probleme critique)
-
-| Document                           | Variantes                                                                     |
-| ---------------------------------- | ----------------------------------------------------------------------------- |
-| `spec-draft.md`                    | Ghost, Local, Modified, InConflict, Synced                                    |
-| `INTERFACES.md`                    | Ghost, Hydrated, Modified, Syncing, Error                                     |
-| `ipc-contract-design.md`           | Ghost, Hydrated, Modified, Syncing, **Conflict**, Error                       |
-| `vfs-engine-design.md`             | Ghost, Hydrated, Modified, Syncing, **Conflict**, Error                       |
-| `project-initialization-design.md` | Ghost, Hydrated, Modified, Syncing, **Synced**, Conflict, Error (7 variantes) |
-
-**5 definitions differentes de FileState** a travers les documents. Le spec-draft utilise `Local` et `InConflict`, l'INTERFACES.md omet `Conflict`, et le design d'initialisation ajoute `Synced`. Il n'y a pas de source de verite claire.
-
-### Contrat IPC
-
-- `INTERFACES.md` definit 4 methodes : `file.status`, `file.hydrate`, `file.list`, `auth.token`
-- `ipc-contract-design.md` definit 5 methodes : les 3 file.\*, `events.subscribe`, `events.emit` — **mais pas `auth.token`**
-- Le bridge JS dans `INTERFACES.md` expose `getToken()`, mais aucune methode IPC correspondante dans la spec IPC detaillee
-
-### FileNode
-
-- `INTERFACES.md` : `id: String`, `modified: String`
-- `vfs-engine-design.md` : `id: Uuid`, `modified: OffsetDateTime`, + champ `parent_id`
-- `ipc-contract-design.md` : `id: String`, `modified: String` (sans `parent_id`)
-
-Le modele interne (VFS) et le modele IPC divergent, ce qui est potentiellement intentionnel, mais jamais documente.
+### Documents NON modifies (pas d'impact)
+- `STREAM_B_SYNC_CORE.md` -- Le sync engine Rust est 100% inchange
+- `STREAM_C_IPC_NETWORK.md` -- Le serveur IPC Rust reste identique (ajout note)
+- `docs/superpowers/specs/vfs-engine-design.md` -- VFS inchange
+- `docs/superpowers/specs/reconciliation-engine-design.md` -- Reconciliation inchange
+- `docs/adr/ADR-0001-project-structure.md` -- Structure doc inchangee
+- `docs/adr/ADR-0002-authentication-flow.md` -- Flow OIDC inchange
 
 ---
 
-## 3. Coherence des timelines
+## 2. Coherence post-migration
 
-**Confusion entre 3 temporalites :**
+### FileState (RESOLU)
 
-| Document                                                         | Temporalite                             |
-| ---------------------------------------------------------------- | --------------------------------------- |
-| `PLAN.md`                                                        | Plan 6 semaines (developpement complet) |
-| `PLAN_HACKATON.md` / `INTERFACES.md` / `STREAM_*.md`             | Hackathon 48h                           |
-| `project-initialization-design.md` / `project-initialization.md` | Semaine 1 (J1-J3)                       |
+Source de verite unique : `INTERFACES.md`
 
-Le plan d'initialisation (J1-J3) et le hackathon (48h) couvrent des perimetres quasi identiques avec des decoupages differents. On ne sait pas si l'un remplace l'autre ou s'ils s'adressent a des contextes differents. Le `PLAN.md` 6 semaines ne reference pas les documents d'initialisation.
+6 variantes : `Ghost`, `Hydrated`, `Modified`, `Syncing`, `Conflict`, `Error`
 
----
+Tous les documents mis a jour sont alignes sur ces 6 variantes.
 
-## 4. Qualite des specs detaillees (docs/superpowers/specs/)
+> **Note :** Le `spec-draft.ARCHIVED.md` contient encore l'ancienne definition (5 variantes differentes). Ce fichier est archive et ne doit pas etre utilise.
 
-**Points forts :**
+### Contrat IPC (RESOLU)
 
-- Les 4 design specs (CEF, VFS, IPC, Reconciliation) sont homogenes en structure : Overview -> Architecture -> Components -> Error Handling -> Testing -> Risks -> References
-- Chaque spec inclut du code Rust/C++ concret, pas seulement de la prose
-- Le trait `ReconciliationEngine` et le pattern Phase 1/Phase 2 sont bien articules
-- Les diagrammes ASCII sont coherents entre documents
+6 methodes definies de maniere coherente :
+- `file.status`, `file.hydrate`, `file.list`
+- `auth.token`
+- `events.subscribe`, `events.emit`
 
-**Points faibles :**
+### Bridge API (CLARIFIE)
 
-- Toutes les specs sont en statut "Draft" sauf `project-initialization-design.md` (Approved). Le `spec.md` est "Final" mais pointe vers des specs Draft — incoherence de maturite.
-- Le `cef-shell-design.md` a un checklist sur 5 jours alors que le hackathon est sur 2 jours et l'initialisation sur 3 jours
-- Le `reconciliation-engine-design.md` mentionne `PouchDB` (crate `pouchdb-rs`) dans les dependances, qui n'existe probablement pas en Rust — confusion entre le concept CouchDB-style et l'implementation reelle
+La bridge `window.__twake` est maintenant clairement definie comme :
+- Implementee via `contextBridge.exposeInMainWorld()` dans `preload.ts`
+- Toutes les methodes sont async (Promise)
+- `on()` retourne une fonction `unsubscribe`
+- Validation des types dans le preload
 
 ---
 
-## 5. Coherence linguistique
+## 3. Points d'attention restants
 
-Les documents melangent francais et anglais de facon inconsistante :
+### spec-draft.ARCHIVED.md
+Le fichier existe encore mais est archive. Il contient des analyses (matrice CEF/Electron, risques) qui restent informatives mais les chiffres sont partiellement obsoletes.
 
-- `spec.md`, `ipc-contract-design.md`, `vfs-engine-design.md` : **anglais**
-- `INTERFACES.md`, `STREAM_*.md`, `PLAN_HACKATON.md` : **francais**
-- `spec-draft.md` : **mixte** (prose anglaise, rationale en francais)
-- `project-initialization-design.md` : **mixte** (structure anglaise, contenu francais)
+### Coherence linguistique
+Le melange FR/EN persiste. Convention suggeree : anglais pour les specs techniques, francais pour les plans et streams.
 
-Ce n'est pas bloquant, mais c'est un signe de maturation progressive sans harmonisation.
-
----
-
-## 6. ADR
-
-**Points forts :**
-
-- Bonne utilisation du format ADR avec contexte/decision/consequences
-- L'ADR-0003 (architecture deux processus) est particulierement bien argumente
-
-**Points faibles :**
-
-- L'ADR-0002 est en statut "Proposed" alors que l'OIDC PKCE est deja mentionne comme decision prise partout ailleurs
-- Certaines decisions documentees dans `spec-draft.md` (choix CEF vs Electron, CouchDB vs CRDT Phase 1/2) meriteraient leur propre ADR
+### ADR-0002 en "Proposed"
+L'ADR sur l'authentification OIDC PKCE est toujours en statut "Proposed" alors que le flow est implemente. Devrait passer en "Accepted".
 
 ---
 
-## 7. Liens et navigation
+## 4. Synthese post-migration
 
-- Les liens relatifs dans `spec.md` (`../../PLAN.md`, `../superpowers/specs/*.md`) sont corrects par rapport a la structure
-- Le `cef-shell-design.md` reference `jsonrpsee C++ client` avec un lien vers le repo Rust jsonrpsee — c'est incorrect, jsonrpsee est une lib Rust
-- Pas de document d'index global (type table des matieres) en dehors de `spec.md` qui ne liste pas tout
+| Critere | Note | Commentaire |
+|---------|------|-------------|
+| **Structure** | 8/10 | Hierarchie claire, documents bien lies |
+| **Coherence des donnees** | 8/10 | FileState et IPC alignes, sauf spec-draft archive |
+| **Coherence temporelle** | 7/10 | Plans hackhaton et init mieux articules |
+| **Qualite des specs** | 9/10 | Electron design spec detaillee avec code concret |
+| **ADR** | 8/10 | ADR-0004 bien argumente |
+| **Navigation** | 7/10 | Liens corrects, toujours pas de README racine |
+| **Securite** | 9/10 | Defense in depth bien documentee (5 couches) |
 
----
-
-## Synthese
-
-| Critere                    | Note | Commentaire                                                       |
-| -------------------------- | ---- | ----------------------------------------------------------------- |
-| **Structure**              | 7/10 | Bonne hierarchie, mais 3 niveaux et documents racine mal integres |
-| **Coherence des donnees**  | 4/10 | FileState, FileNode et contrat IPC divergent entre documents      |
-| **Coherence temporelle**   | 5/10 | 3 timelines (6 sem, 48h, 3 jours) non articulees entre elles      |
-| **Qualite des specs**      | 8/10 | Specs detaillees bien structurees avec code concret               |
-| **ADR**                    | 7/10 | Bon format, mais incomplet (decisions majeures non couvertes)     |
-| **Navigation**             | 6/10 | Liens corrects, mais pas de point d'entree unique                 |
-| **Coherence linguistique** | 5/10 | Melange FR/EN sans convention                                     |
-
-**Verdict global : 6/10** — Les specs individuelles sont de bonne qualite, mais l'ensemble souffre d'un manque de coherence inter-documents. Le probleme prioritaire est la divergence de `FileState` qui est le type fondamental du systeme et qui a 5 definitions differentes. Le second probleme est la relation non clarifiee entre le hackathon 48h et le plan d'initialisation J1-J3.
-
----
-
-## Recommandations prioritaires
-
-1. **Etablir un document canonique unique pour les types partages** (FileState, FileNode, methodes IPC) et faire pointer tous les autres documents vers celui-ci plutot que de redefinir les types a chaque fois.
-2. **Clarifier le statut de `spec-draft.md`** — archiver ou fusionner dans `spec.md`.
-3. **Articuler les 3 timelines** — expliquer comment hackathon, initialisation J1-J3, et plan 6 semaines se relient.
-4. **Ajouter un README.md** a la racine comme point d'entree.
-5. **Choisir une langue** (FR ou EN) et harmoniser.
+**Verdict global : 8/10** -- Amelioration significative de la coherence. La migration est bien documentee et l'architecture securite d'Electron est detaillee.
