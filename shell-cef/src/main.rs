@@ -1,4 +1,5 @@
 mod actions;
+mod browser;
 mod protocol;
 mod server;
 
@@ -7,6 +8,8 @@ use std::path::PathBuf;
 use clap::Parser;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+
+use browser::CefController;
 
 #[derive(Parser, Debug)]
 #[command(name = "twake-shell-cef", version, about = "Twake Desktop Shell-CEF RPC server")]
@@ -24,16 +27,17 @@ struct Cli {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Initialize tracing subscriber.
     let filter = EnvFilter::try_new(&cli.log_level)
         .unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .init();
 
-    info!(sock = ?cli.sock, "Starting shell-cef");
+    info!(sock = ?cli.sock, "Starting shell-cef with CEF");
 
-    // Shutdown channel driven by SIGTERM / SIGINT.
+    CefController::new();
+    info!("CEF controller initialized");
+
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     tokio::spawn(async move {

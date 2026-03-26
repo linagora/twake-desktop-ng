@@ -1,9 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde::Deserialize;
 use serde_json::json;
 use tracing::info;
 
+use crate::browser::CefController;
 use crate::protocol::{ErrorCode, Response};
 
 #[derive(Debug, Deserialize)]
@@ -58,60 +59,27 @@ pub async fn execute(params: serde_json::Value, start: Instant) -> Response {
         }
     };
 
-    info!(url = %url, timeout_ms = parsed.timeout_ms, "navigate");
+    info!(url = %url, timeout_ms = parsed.timeout_ms, "navigate via CEF");
 
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .timeout(Duration::from_millis(parsed.timeout_ms))
-        .build();
-
-    let client = match client {
-        Ok(c) => c,
-        Err(e) => {
-            return Response::error(
-                ErrorCode::InternalError,
-                format!("Failed to build HTTP client: {e}"),
-                start,
-            );
-        }
-    };
-
-    let result = client.get(&url).send().await;
-
+    let cef_url = url.clone();
+    let result = CefController::navigate(cef_url).await;
     match result {
-        Ok(resp) => {
-            let status_code = resp.status().as_u16();
-            let final_url = resp.url().to_string();
-
-            match resp.text().await {
-                Ok(body) => {
-                    let title = extract_title(&body).unwrap_or_default();
-                    Response::ok(
-                        json!({
-                            "url": url,
-                            "final_url": final_url,
-                            "title": title,
-                            "status_code": status_code,
-                            "body": body,
-                        }),
-                        start,
-                    )
-                }
-                Err(e) => Response::error(
-                    ErrorCode::NavigateFailed,
-                    format!("Failed to read response body: {e}"),
-                    start,
-                ),
-            }
+        Ok(body) => {
+            let title = extract_title(&body).unwrap_or_default();
+            Response::ok(
+                json!({
+                    "url": url,
+                    "final_url": url,
+                    "title": title,
+                    "status_code": 200,
+                    "body": body,
+                }),
+                start,
+            )
         }
-        Err(e) if e.is_timeout() => Response::error(
-            ErrorCode::NavigateTimeout,
-            format!("Navigation timed out after {}ms", parsed.timeout_ms),
-            start,
-        ),
         Err(e) => Response::error(
             ErrorCode::NavigateFailed,
-            format!("Navigation failed: {e}"),
+            format!("CEF navigation failed: {e}"),
             start,
         ),
     }

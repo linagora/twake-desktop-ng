@@ -32,7 +32,7 @@ rand = "0.8"
 futures-util = "0.3"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-cef = { version = "145.6.1", default-features = false, features = [] }
+cef = { version = "146.0.0", default-features = false, features = [] }
 
 [dev-dependencies]
 tempfile = "3"
