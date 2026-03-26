@@ -66,12 +66,12 @@ Twake Desktop NG is a **collaborative work platform** (not just a file sync clie
 
 For implementation details, refer to these design specs:
 
-| Component | Spec Document | Description |
-|-----------|---------------|-------------|
-| **CEF Shell** | [cef-shell-design.md](../superpowers/specs/cef-shell-design.md) | Window management, JS bridge, IPC client |
-| **VFS Engine** | [vfs-engine-design.md](../superpowers/specs/vfs-engine-design.md) | FUSE/ProjFS implementation, placeholder files |
+| Component          | Spec Document                                                                           | Description                                         |
+| ------------------ | --------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **CEF Shell**      | [cef-shell-design.md](../superpowers/specs/cef-shell-design.md)                         | Window management, JS bridge, IPC client            |
+| **VFS Engine**     | [vfs-engine-design.md](../superpowers/specs/vfs-engine-design.md)                       | FUSE/ProjFS implementation, placeholder files       |
 | **Reconciliation** | [reconciliation-engine-design.md](../superpowers/specs/reconciliation-engine-design.md) | Conflict detection, last-write-wins, CRDT migration |
-| **IPC Contract** | [ipc-contract-design.md](../superpowers/specs/ipc-contract-design.md) | JSON-RPC schema, event types, error codes |
+| **IPC Contract**   | [ipc-contract-design.md](../superpowers/specs/ipc-contract-design.md)                   | JSON-RPC schema, event types, error codes           |
 
 ---
 
@@ -79,25 +79,25 @@ For implementation details, refer to these design specs:
 
 ### CEF Shell (C++)
 
-| Component | Technology | Notes |
-|-----------|------------|-------|
-| **CEF** | Chromium Embedded Framework | Latest stable branch |
-| **Build** | CMake + CEF binaries | Prebuilt from Spotify CDN |
-| **Window management** | Native OS APIs | Win32 / Cocoa / GTK |
-| **IPC client** | JSON-RPC over Unix socket | `cppipc` or custom |
+| Component             | Technology                  | Notes                     |
+| --------------------- | --------------------------- | ------------------------- |
+| **CEF**               | Chromium Embedded Framework | Latest stable branch      |
+| **Build**             | CMake + CEF binaries        | Prebuilt from Spotify CDN |
+| **Window management** | Native OS APIs              | Win32 / Cocoa / GTK       |
+| **IPC client**        | JSON-RPC over Unix socket   | `cppipc` or custom        |
 
 ### Sync Engine (Rust)
 
-| Component | Crate | Notes |
-|-----------|-------|-------|
-| **Async runtime** | `tokio` | Multi-threaded |
-| **VFS Linux** | `fuse3` | FUSE 3.x bindings |
-| **VFS Windows** | `projfs` | ProjFS bindings |
-| **VFS macOS** | FFI to FileProvider | Native framework |
-| **Database** | `sqlx` | Async SQL, SQLite |
-| **IPC server** | `jsonrpsee` | JSON-RPC over Unix socket |
-| **WebSocket** | `tokio-tungstenite` | Async WebSocket |
-| **HTTP** | `reqwest` | Async HTTP client |
+| Component         | Crate               | Notes                     |
+| ----------------- | ------------------- | ------------------------- |
+| **Async runtime** | `tokio`             | Multi-threaded            |
+| **VFS Linux**     | `fuse3`             | FUSE 3.x bindings         |
+| **VFS Windows**   | `projfs`            | ProjFS bindings           |
+| **VFS macOS**     | FFI to FileProvider | Native framework          |
+| **Database**      | `sqlx`              | Async SQL, SQLite         |
+| **IPC server**    | `jsonrpsee`         | JSON-RPC over Unix socket |
+| **WebSocket**     | `tokio-tungstenite` | Async WebSocket           |
+| **HTTP**          | `reqwest`           | Async HTTP client         |
 
 ---
 
@@ -105,10 +105,10 @@ For implementation details, refer to these design specs:
 
 The project is structured for parallel development across 3 streams:
 
-| Stream | Focus | Lead | Status |
-|--------|-------|------|--------|
-| **Stream A** | CEF Shell (C++) | Dev 1 | [STREAM_A_CEF.md](../../STREAM_A_CEF.md) |
-| **Stream B** | Sync Core (Rust VFS) | Dev 2 | [STREAM_B_SYNC_CORE.md](../../STREAM_B_SYNC_CORE.md) |
+| Stream       | Focus                | Lead  | Status                                                   |
+| ------------ | -------------------- | ----- | -------------------------------------------------------- |
+| **Stream A** | CEF Shell (C++)      | Dev 1 | [STREAM_A_CEF.md](../../STREAM_A_CEF.md)                 |
+| **Stream B** | Sync Core (Rust VFS) | Dev 2 | [STREAM_B_SYNC_CORE.md](../../STREAM_B_SYNC_CORE.md)     |
 | **Stream C** | IPC + Network (Rust) | Dev 3 | [STREAM_C_IPC_NETWORK.md](../../STREAM_C_IPC_NETWORK.md) |
 
 **Interfaces:** See [INTERFACES.md](../../INTERFACES.md) for contract definitions.

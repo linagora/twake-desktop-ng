@@ -27,6 +27,7 @@ This spec defines the approach for initializing the Twake Desktop NG codebase fr
 ### Scope (Week 1)
 
 **In scope:**
+
 - ✅ Repository structure (cef-shell/, sync-engine/)
 - ✅ Build systems (Cargo.toml, CMakeLists.txt)
 - ✅ Shared models (FileNode, FileState)
@@ -37,6 +38,7 @@ This spec defines the approach for initializing the Twake Desktop NG codebase fr
 - ✅ End-to-end connectivity test
 
 **Out of scope:**
+
 - ❌ Full VFS implementation (FUSE/ProjFS)
 - ❌ Full IPC handlers (delegate to real implementations)
 - ❌ CEF window management (minimal for now)
@@ -106,6 +108,7 @@ twake-desktop-ng/
 ```
 
 **Key principles:**
+
 - `sync-engine/` contient tout le code Rust (Streams B et C)
 - `models/` est partagé entre B et C (unique source of truth)
 - `cef-shell/` est indépendant (C++ seul, IPC client)
@@ -118,6 +121,7 @@ twake-desktop-ng/
 ### Day 1 — Structure de base et types communs
 
 **Stream C (lead) :**
+
 ```bash
 # Créer structure Rust
 cargo new sync-engine --lib
@@ -134,6 +138,7 @@ touch src/events/{mod.rs,types.rs,bus.rs}
 ```
 
 **Stream A (parallèle) :**
+
 ```bash
 # Créer structure C++
 mkdir -p cef-shell/src/{app,browser,ipc}
@@ -146,6 +151,7 @@ mv cef_binary_* cef-shell/cef/
 ```
 
 **Stream B (parallèle) :**
+
 ```bash
 # Review les modèles proposés, proposer ajustements
 # Préparer VFS trait definition
@@ -235,6 +241,7 @@ pub trait TwakeSyncApi {
 ```
 
 **Checklist J1 (17:00) :**
+
 - [ ] sync-engine/ créé avec Cargo.toml
 - [ ] models/ avec FileNode et FileState
 - [ ] contract.rs avec trait TwakeSyncApi
@@ -267,7 +274,7 @@ pub struct SyncEngineApi {
 impl TwakeSyncApiServer for SyncEngineApi {
     async fn file_status(&self, path: String) -> RpcResult<FileStatus> {
         info!("file.status called: {}", path);
-        
+
         // For Day 2: dummy response
         // For Day 3: delegate to VFS
         Ok(FileStatus {
@@ -297,10 +304,10 @@ impl TwakeSyncApiServer for SyncEngineApi {
         mut subscription: jsonrpsee::server::SubscriptionSink,
     ) -> SubscriptionResult {
         info!("events.subscribe called");
-        
+
         // Subscribe to event bus and forward events
         let mut rx = self.event_bus.subscribe();
-        
+
         tokio::spawn(async move {
             while let Ok(event) = rx.recv().await {
                 if subscription.send(event).await.is_err() {
@@ -308,7 +315,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
                 }
             }
         });
-        
+
         Ok(())
     }
 
@@ -321,9 +328,9 @@ impl TwakeSyncApiServer for SyncEngineApi {
 pub async fn start_server(socket_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Remove existing socket
     let _ = std::fs::remove_file(socket_path);
-    
+
     let server = Server::builder().build(socket_path).await?;
-    let api = SyncEngineApi { 
+    let api = SyncEngineApi {
         event_bus: EventBus::new(),
         vfs: None,
     };
@@ -350,6 +357,7 @@ private:
 ```
 
 **Checklist J2 (17:00) :**
+
 - [ ] IPC server écoute sur `/tmp/twake-ipc.sock`
 - [ ] Méthode `file.status` répond avec dummy data
 - [ ] IPC client C++ peut se connecter
@@ -360,6 +368,7 @@ private:
 ### Day 3 — End-to-End Test
 
 **Stream C :**
+
 ```rust
 // Connecter handlers à InMemoryVfs
 pub struct SyncEngineApi {
@@ -369,6 +378,7 @@ pub struct SyncEngineApi {
 ```
 
 **Stream A :**
+
 ```cpp
 // Tester IPC client
 IpcClient client;
@@ -378,6 +388,7 @@ std::cout << "Result: " << result.dump() << std::endl;
 ```
 
 **Test E2E :**
+
 ```bash
 # Terminal 1 : Start IPC server
 cd sync-engine
@@ -395,6 +406,7 @@ cd cef-shell
 ```
 
 **Checklist J3 (17:00) :**
+
 - [ ] `cargo build` passe sans warnings
 - [ ] IPC server répond aux requêtes
 - [ ] IPC client C++ reçoit réponse
@@ -447,15 +459,16 @@ mod tests {
 
 ## Risk Mitigation
 
-| Risk | Mitigation |
-|------|------------|
-| **Contrat IPC instable** | J1-J2 dédiés au design, validation par tous à 17:00 |
-| **CEF build échoue** | Prébuilt binaries, documenter dans README.md |
-| **Incompatibilité types** | Models dans sync-engine/, unique source of truth |
-| **IPC disconnects** | Retry logic avec exponential backoff |
-| **Stream B trop lent** | InMemoryVfs simple, pas de FUSE cette semaine |
+| Risk                      | Mitigation                                          |
+| ------------------------- | --------------------------------------------------- |
+| **Contrat IPC instable**  | J1-J2 dédiés au design, validation par tous à 17:00 |
+| **CEF build échoue**      | Prébuilt binaries, documenter dans README.md        |
+| **Incompatibilité types** | Models dans sync-engine/, unique source of truth    |
+| **IPC disconnects**       | Retry logic avec exponential backoff                |
+| **Stream B trop lent**    | InMemoryVfs simple, pas de FUSE cette semaine       |
 
 **Plan B :**
+
 - Si IPC trop complexe → fichiers JSON temporaires
 - Si CEF bloque → Electron en fallback
 - Si FUSE bloque → dossier normal sans placeholders
@@ -482,6 +495,7 @@ mod tests {
 ## Success Metrics
 
 **J3 soir :**
+
 - ✅ Codebase structurée (cef-shell/, sync-engine/)
 - ✅ Build systems fonctionnels (cargo build, cmake --build)
 - ✅ Contrat IPC défini et implémenté
@@ -489,6 +503,7 @@ mod tests {
 - ✅ Tous les streams prêts pour développement parallèle
 
 **KPIs :**
+
 - Temps de build < 5 minutes
 - E2E test < 100ms de latence
 - 0 warning dans les builds

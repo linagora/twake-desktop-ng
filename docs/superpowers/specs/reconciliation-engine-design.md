@@ -326,13 +326,13 @@ thiserror = "1.0"
 
 ## Risks and Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| **Data loss** | Critical | Always backup before overwrite |
-| **Silent conflicts** | High | Detect and notify, never auto-override |
-| **Performance** | Medium | Batch operations, debounce sync |
-| **CRDT complexity** | High | Phase 1 first, abstract trait from start |
-| **Version drift** | Medium | Vector clocks in Phase 2 |
+| Risk                 | Impact   | Mitigation                               |
+| -------------------- | -------- | ---------------------------------------- |
+| **Data loss**        | Critical | Always backup before overwrite           |
+| **Silent conflicts** | High     | Detect and notify, never auto-override   |
+| **Performance**      | Medium   | Batch operations, debounce sync          |
+| **CRDT complexity**  | High     | Phase 1 first, abstract trait from start |
+| **Version drift**    | Medium   | Vector clocks in Phase 2                 |
 
 ---
 

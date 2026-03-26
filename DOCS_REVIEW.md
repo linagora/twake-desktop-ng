@@ -9,6 +9,7 @@
 ## 1. Structure et organisation
 
 **Points forts :**
+
 - Hierarchie claire : spec -> design specs -> plans -> ADR
 - Le `docs/spec.md` (v5.0 Final) sert bien de document chapeau qui pointe vers les specs detaillees
 - Les ADR sont bien structures avec un template et un index
@@ -27,12 +28,12 @@
 
 ### FileState (probleme critique)
 
-| Document | Variantes |
-|----------|-----------|
-| `spec-draft.md` | Ghost, Local, Modified, InConflict, Synced |
-| `INTERFACES.md` | Ghost, Hydrated, Modified, Syncing, Error |
-| `ipc-contract-design.md` | Ghost, Hydrated, Modified, Syncing, **Conflict**, Error |
-| `vfs-engine-design.md` | Ghost, Hydrated, Modified, Syncing, **Conflict**, Error |
+| Document                           | Variantes                                                                     |
+| ---------------------------------- | ----------------------------------------------------------------------------- |
+| `spec-draft.md`                    | Ghost, Local, Modified, InConflict, Synced                                    |
+| `INTERFACES.md`                    | Ghost, Hydrated, Modified, Syncing, Error                                     |
+| `ipc-contract-design.md`           | Ghost, Hydrated, Modified, Syncing, **Conflict**, Error                       |
+| `vfs-engine-design.md`             | Ghost, Hydrated, Modified, Syncing, **Conflict**, Error                       |
 | `project-initialization-design.md` | Ghost, Hydrated, Modified, Syncing, **Synced**, Conflict, Error (7 variantes) |
 
 **5 definitions differentes de FileState** a travers les documents. Le spec-draft utilise `Local` et `InConflict`, l'INTERFACES.md omet `Conflict`, et le design d'initialisation ajoute `Synced`. Il n'y a pas de source de verite claire.
@@ -40,7 +41,7 @@
 ### Contrat IPC
 
 - `INTERFACES.md` definit 4 methodes : `file.status`, `file.hydrate`, `file.list`, `auth.token`
-- `ipc-contract-design.md` definit 5 methodes : les 3 file.*, `events.subscribe`, `events.emit` — **mais pas `auth.token`**
+- `ipc-contract-design.md` definit 5 methodes : les 3 file.\*, `events.subscribe`, `events.emit` — **mais pas `auth.token`**
 - Le bridge JS dans `INTERFACES.md` expose `getToken()`, mais aucune methode IPC correspondante dans la spec IPC detaillee
 
 ### FileNode
@@ -57,11 +58,11 @@ Le modele interne (VFS) et le modele IPC divergent, ce qui est potentiellement i
 
 **Confusion entre 3 temporalites :**
 
-| Document | Temporalite |
-|----------|-------------|
-| `PLAN.md` | Plan 6 semaines (developpement complet) |
-| `PLAN_HACKATON.md` / `INTERFACES.md` / `STREAM_*.md` | Hackathon 48h |
-| `project-initialization-design.md` / `project-initialization.md` | Semaine 1 (J1-J3) |
+| Document                                                         | Temporalite                             |
+| ---------------------------------------------------------------- | --------------------------------------- |
+| `PLAN.md`                                                        | Plan 6 semaines (developpement complet) |
+| `PLAN_HACKATON.md` / `INTERFACES.md` / `STREAM_*.md`             | Hackathon 48h                           |
+| `project-initialization-design.md` / `project-initialization.md` | Semaine 1 (J1-J3)                       |
 
 Le plan d'initialisation (J1-J3) et le hackathon (48h) couvrent des perimetres quasi identiques avec des decoupages differents. On ne sait pas si l'un remplace l'autre ou s'ils s'adressent a des contextes differents. Le `PLAN.md` 6 semaines ne reference pas les documents d'initialisation.
 
@@ -70,12 +71,14 @@ Le plan d'initialisation (J1-J3) et le hackathon (48h) couvrent des perimetres q
 ## 4. Qualite des specs detaillees (docs/superpowers/specs/)
 
 **Points forts :**
+
 - Les 4 design specs (CEF, VFS, IPC, Reconciliation) sont homogenes en structure : Overview -> Architecture -> Components -> Error Handling -> Testing -> Risks -> References
 - Chaque spec inclut du code Rust/C++ concret, pas seulement de la prose
 - Le trait `ReconciliationEngine` et le pattern Phase 1/Phase 2 sont bien articules
 - Les diagrammes ASCII sont coherents entre documents
 
 **Points faibles :**
+
 - Toutes les specs sont en statut "Draft" sauf `project-initialization-design.md` (Approved). Le `spec.md` est "Final" mais pointe vers des specs Draft — incoherence de maturite.
 - Le `cef-shell-design.md` a un checklist sur 5 jours alors que le hackathon est sur 2 jours et l'initialisation sur 3 jours
 - Le `reconciliation-engine-design.md` mentionne `PouchDB` (crate `pouchdb-rs`) dans les dependances, qui n'existe probablement pas en Rust — confusion entre le concept CouchDB-style et l'implementation reelle
@@ -85,6 +88,7 @@ Le plan d'initialisation (J1-J3) et le hackathon (48h) couvrent des perimetres q
 ## 5. Coherence linguistique
 
 Les documents melangent francais et anglais de facon inconsistante :
+
 - `spec.md`, `ipc-contract-design.md`, `vfs-engine-design.md` : **anglais**
 - `INTERFACES.md`, `STREAM_*.md`, `PLAN_HACKATON.md` : **francais**
 - `spec-draft.md` : **mixte** (prose anglaise, rationale en francais)
@@ -97,10 +101,12 @@ Ce n'est pas bloquant, mais c'est un signe de maturation progressive sans harmon
 ## 6. ADR
 
 **Points forts :**
+
 - Bonne utilisation du format ADR avec contexte/decision/consequences
 - L'ADR-0003 (architecture deux processus) est particulierement bien argumente
 
 **Points faibles :**
+
 - L'ADR-0002 est en statut "Proposed" alors que l'OIDC PKCE est deja mentionne comme decision prise partout ailleurs
 - Certaines decisions documentees dans `spec-draft.md` (choix CEF vs Electron, CouchDB vs CRDT Phase 1/2) meriteraient leur propre ADR
 
@@ -116,15 +122,15 @@ Ce n'est pas bloquant, mais c'est un signe de maturation progressive sans harmon
 
 ## Synthese
 
-| Critere | Note | Commentaire |
-|---------|------|-------------|
-| **Structure** | 7/10 | Bonne hierarchie, mais 3 niveaux et documents racine mal integres |
-| **Coherence des donnees** | 4/10 | FileState, FileNode et contrat IPC divergent entre documents |
-| **Coherence temporelle** | 5/10 | 3 timelines (6 sem, 48h, 3 jours) non articulees entre elles |
-| **Qualite des specs** | 8/10 | Specs detaillees bien structurees avec code concret |
-| **ADR** | 7/10 | Bon format, mais incomplet (decisions majeures non couvertes) |
-| **Navigation** | 6/10 | Liens corrects, mais pas de point d'entree unique |
-| **Coherence linguistique** | 5/10 | Melange FR/EN sans convention |
+| Critere                    | Note | Commentaire                                                       |
+| -------------------------- | ---- | ----------------------------------------------------------------- |
+| **Structure**              | 7/10 | Bonne hierarchie, mais 3 niveaux et documents racine mal integres |
+| **Coherence des donnees**  | 4/10 | FileState, FileNode et contrat IPC divergent entre documents      |
+| **Coherence temporelle**   | 5/10 | 3 timelines (6 sem, 48h, 3 jours) non articulees entre elles      |
+| **Qualite des specs**      | 8/10 | Specs detaillees bien structurees avec code concret               |
+| **ADR**                    | 7/10 | Bon format, mais incomplet (decisions majeures non couvertes)     |
+| **Navigation**             | 6/10 | Liens corrects, mais pas de point d'entree unique                 |
+| **Coherence linguistique** | 5/10 | Melange FR/EN sans convention                                     |
 
 **Verdict global : 6/10** — Les specs individuelles sont de bonne qualite, mais l'ensemble souffre d'un manque de coherence inter-documents. Le probleme prioritaire est la divergence de `FileState` qui est le type fondamental du systeme et qui a 5 definitions differentes. Le second probleme est la relation non clarifiee entre le hackathon 48h et le plan d'initialisation J1-J3.
 

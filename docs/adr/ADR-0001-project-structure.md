@@ -7,6 +7,7 @@ Accepted
 ## Context
 
 The Twake Desktop NG project has grown multiple documentation files with overlapping content:
+
 - `docs/spec.md` (853 lines) - Technical specification
 - `PLAN.md` (545 lines) - 6-week development plan
 - `PLAN_HACKATON.md` (322 lines) - 48-hour hackathon plan
@@ -15,6 +16,7 @@ The Twake Desktop NG project has grown multiple documentation files with overlap
 - `docs/spec-draft.md` - Earlier draft
 
 This creates confusion about:
+
 - Where to find authoritative information
 - Which document to update when requirements change
 - How to navigate the documentation for different audiences (architects vs developers)
@@ -43,19 +45,20 @@ docs/
 ```
 
 **Root level files (unchanged):**
+
 - `PLAN.md` - 6-week development roadmap
 - `PLAN_HACKATON.md` - 48-hour hackathon plan
 - `STREAM_A/B/C.md` - Implementation guides for parallel development
 
 **Document purposes:**
 
-| Document | Audience | Purpose | Update Frequency |
-|----------|----------|---------|------------------|
-| `docs/spec.md` | Architects, new devs | High-level architecture overview | Rare |
-| `docs/superpowers/specs/*.md` | Developers, implementers | Detailed design for specific components | Per feature |
-| `docs/adr/*.md` | Architects, reviewers | Documented decisions with rationale | Per major decision |
-| `PLAN.md` | Project manager, devs | Development timeline and milestones | Weekly |
-| `STREAM_*.md` | Developers | Step-by-step implementation guide | During development |
+| Document                      | Audience                 | Purpose                                 | Update Frequency   |
+| ----------------------------- | ------------------------ | --------------------------------------- | ------------------ |
+| `docs/spec.md`                | Architects, new devs     | High-level architecture overview        | Rare               |
+| `docs/superpowers/specs/*.md` | Developers, implementers | Detailed design for specific components | Per feature        |
+| `docs/adr/*.md`               | Architects, reviewers    | Documented decisions with rationale     | Per major decision |
+| `PLAN.md`                     | Project manager, devs    | Development timeline and milestones     | Weekly             |
+| `STREAM_*.md`                 | Developers               | Step-by-step implementation guide       | During development |
 
 ## Consequences
 
@@ -76,11 +79,13 @@ docs/
 ### Trade-offs
 
 **Chose hierarchical over flat structure:**
+
 - More complex initially but scales better
 - Easier to maintain consistency within each spec
 - Harder to get "big picture" without reading multiple docs
 
-**Chose to keep STREAM_*.md files:**
+**Chose to keep STREAM\_\*.md files:**
+
 - They serve as implementation guides, not specs
 - Useful for developers working in parallel
 - Can be updated independently of design specs

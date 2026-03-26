@@ -12,6 +12,7 @@
 This plan breaks down the project initialization into bite-sized tasks (2-5 minutes each) following TDD principles. Tasks are organized by day and stream, with parallel execution where possible.
 
 **Prerequisites:**
+
 - Rust 1.75+ installed (`rustc --version`)
 - CMake 3.16+ installed (`cmake --version`)
 - Git configured
@@ -170,7 +171,7 @@ mkdir -p scripts
 
 **File:** `README.md`
 
-```markdown
+````markdown
 # Twake Desktop NG
 
 Collaborative work platform desktop client.
@@ -193,6 +194,7 @@ cargo build
 cd cef-shell && mkdir -p build && cd build
 cmake .. && make
 ```
+````
 
 ### Run
 
@@ -212,7 +214,8 @@ curl -X POST --unix-socket /tmp/twake-ipc.sock \
 - [Architecture](docs/adr/ADR-0003-two-process-architecture.md)
 - [IPC Contract](docs/superpowers/specs/ipc-contract-design.md)
 - [VFS Engine](docs/superpowers/specs/vfs-engine-design.md)
-```
+
+````
 
 **Expected:** Root `CMakeLists.txt` created
 
@@ -286,9 +289,10 @@ mod tests {
         }
     }
 }
-```
+````
 
 **Run tests:**
+
 ```bash
 cd sync-engine
 cargo test file_state
@@ -377,6 +381,7 @@ mod tests {
 ```
 
 **Update mod.rs:**
+
 ```bash
 cat > sync-engine/src/models/mod.rs << 'EOF'
 pub mod file_state;
@@ -388,6 +393,7 @@ EOF
 ```
 
 **Run tests:**
+
 ```bash
 cargo test models
 ```
@@ -588,6 +594,7 @@ mod tests {
 ```
 
 **Update events/mod.rs:**
+
 ```bash
 cat > sync-engine/src/events/mod.rs << 'EOF'
 pub mod types;
@@ -783,14 +790,14 @@ public:
     bool connect(const std::string& socket_path);
     void disconnect();
     bool isConnected() const { return connected_; }
-    
-    nlohmann::json callMethod(const std::string& method, 
+
+    nlohmann::json callMethod(const std::string& method,
                               const nlohmann::json& params);
 
 private:
     int socket_fd_ = -1;
     bool connected_ = false;
-    
+
     bool sendRequest(const nlohmann::json& request);
     nlohmann::json receiveResponse();
 };
@@ -953,7 +960,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
     #[instrument(skip(self), fields(path = %path))]
     async fn file_status(&self, path: String) -> Result<FileStatus, jsonrpsee::types::ErrorObjectOwned> {
         info!("file.status called");
-        
+
         // Day 2: Dummy response
         // Day 3: Delegate to VFS
         Ok(FileStatus::new(path, FileState::Ghost))
@@ -962,7 +969,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
     #[instrument(skip(self), fields(path = %path))]
     async fn file_hydrate(&self, path: String) -> Result<bool, jsonrpsee::types::ErrorObjectOwned> {
         info!("file.hydrate called");
-        
+
         // Day 2: Dummy response
         Ok(true)
     }
@@ -974,7 +981,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
         recursive: Option<bool>,
     ) -> Result<Vec<FileNode>, jsonrpsee::types::ErrorObjectOwned> {
         info!("file.list called, recursive: {:?}", recursive);
-        
+
         // Day 2: Empty response
         Ok(vec![])
     }
@@ -984,9 +991,9 @@ impl TwakeSyncApiServer for SyncEngineApi {
         mut subscription: jsonrpsee::server::SubscriptionSink,
     ) -> SubscriptionResult {
         info!("events.subscribe called");
-        
+
         let mut rx = self.event_bus.subscribe();
-        
+
         tokio::spawn(async move {
             while let Ok(event) = rx.recv().await {
                 if subscription.send(event).await.is_err() {
@@ -994,7 +1001,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
                 }
             }
         });
-        
+
         Ok(())
     }
 
@@ -1011,18 +1018,18 @@ pub async fn start_server(socket_path: &str) -> Result<(), Box<dyn std::error::E
     let _ = std::fs::remove_file(socket_path);
 
     info!("Starting IPC server on {}", socket_path);
-    
+
     let server = Server::builder().build(socket_path).await?;
     let api = SyncEngineApi::new(EventBus::new());
     let handle = server.start(api.into_rpc());
-    
+
     info!("IPC server started successfully");
-    
+
     // Keep server running
     tokio::spawn(async move {
         handle.stopped().await;
     });
-    
+
     Ok(())
 }
 ```
@@ -1106,6 +1113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 **Create Cargo bin entry:**
+
 ```bash
 mkdir -p sync-engine/src/bin
 ```
@@ -1119,10 +1127,11 @@ mkdir -p sync-engine/src/bin
 ```rust
 // Move from src/ipc/server_test.rs to tests/server_test.rs
 ```
+
 #[cfg(test)]
 mod tests {
-    use jsonrpsee::http_client::HttpClientBuilder;
-    use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::HttpClientBuilder;
+use jsonrpsee::core::client::ClientT;
 
     use crate::ipc::server::start_server;
     use crate::ipc::contract::TwakeSyncApiClient;
@@ -1130,13 +1139,13 @@ mod tests {
     #[tokio::test]
     async fn test_server_start_stop() {
         let socket_path = "/tmp/twake-test-ipc.sock";
-        
+
         // Start server
         start_server(socket_path).await.unwrap();
-        
+
         // Give it a moment to start
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+
         // Clean up
         let _ = std::fs::remove_file(socket_path);
     }
@@ -1144,29 +1153,31 @@ mod tests {
     #[tokio::test]
     async fn test_file_status_call() {
         let socket_path = "/tmp/twake-test-ipc2.sock";
-        
+
         start_server(socket_path).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+
         // Create HTTP client for Unix socket
         let client = HttpClientBuilder::default()
             .build(format!("http://{}", socket_path))
             .unwrap();
-        
+
         // Call file.status
         let result: serde_json::Value = client
             .request("file.status", vec!["/test.txt".to_string()])
             .await
             .unwrap();
-        
+
         assert!(result.get("path").is_some());
         assert!(result.get("state").is_some());
-        
+
         // Clean up
         let _ = std::fs::remove_file(socket_path);
     }
+
 }
-```
+
+````
 
 ---
 
@@ -1189,7 +1200,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(json)
 
 target_link_libraries(cef_app PRIVATE nlohmann_json::nlohmann_json)
-```
+````
 
 ---
 
@@ -1210,19 +1221,19 @@ See Task 1.15 for the implementation.
 
 int main() {
     IpcClient client;
-    
+
     // Test connection (will fail if server not running)
     bool connected = client.connect("/tmp/twake-ipc.sock");
-    
+
     if (connected) {
         std::cout << "Connected to IPC server" << std::endl;
-        
+
         // Test method call
         nlohmann::json params = {{"path", "/test.txt"}};
         auto result = client.callMethod("file.status", params);
-        
+
         std::cout << "Result: " << result.dump(2) << std::endl;
-        
+
         client.disconnect();
         std::cout << "Test passed!" << std::endl;
         return 0;
@@ -1318,19 +1329,19 @@ use crate::models::{FileNode, FileState};
 pub trait VfsBackend: Send + Sync {
     /// Get file status
     async fn get_status(&self, path: &str) -> Result<FileNode, VfsError>;
-    
+
     /// List directory contents
     async fn list_dir(&self, path: &str, recursive: bool) -> Result<Vec<FileNode>, VfsError>;
-    
+
     /// Hydrate a file (download content)
     async fn hydrate(&self, path: &str) -> Result<(), VfsError>;
-    
+
     /// Create a file
     async fn create_file(&self, path: &str) -> Result<(), VfsError>;
-    
+
     /// Create a directory
     async fn create_dir(&self, path: &str) -> Result<(), VfsError>;
-    
+
     /// Delete a file or directory
     async fn delete(&self, path: &str) -> Result<(), VfsError>;
 }
@@ -1340,22 +1351,23 @@ pub trait VfsBackend: Send + Sync {
 pub enum VfsError {
     #[error("File not found: {0}")]
     NotFound(String),
-    
+
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
-    
+
     #[error("Already exists: {0}")]
     AlreadyExists(String),
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
 ```
 
 **Update vfs/mod.rs:**
+
 ```bash
 cat > sync-engine/src/vfs/mod.rs << 'EOF'
 pub mod vfs_trait;
@@ -1390,7 +1402,7 @@ pub struct InMemoryVfs {
 impl InMemoryVfs {
     pub fn new() -> Self {
         let mut nodes = HashMap::new();
-        
+
         // Add some test data
         let root = FileNode {
             id: Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(),
@@ -1402,7 +1414,7 @@ impl InMemoryVfs {
             parent_id: None,
         };
         nodes.insert("/".to_string(), root);
-        
+
         Self {
             nodes: Arc::new(RwLock::new(nodes)),
         }
@@ -1413,7 +1425,7 @@ impl InMemoryVfs {
 impl VfsBackend for InMemoryVfs {
     async fn get_status(&self, path: &str) -> Result<FileNode, VfsError> {
         let nodes = self.nodes.read().await;
-        
+
         nodes.get(path)
             .cloned()
             .ok_or_else(|| VfsError::NotFound(path.to_string()))
@@ -1421,7 +1433,7 @@ impl VfsBackend for InMemoryVfs {
 
     async fn list_dir(&self, path: &str, _recursive: bool) -> Result<Vec<FileNode>, VfsError> {
         let nodes = self.nodes.read().await;
-        
+
         let children: Vec<FileNode> = nodes.values()
             .filter(|n| {
                 n.parent_id
@@ -1433,19 +1445,19 @@ impl VfsBackend for InMemoryVfs {
                     })
                     .map_or(false, |pid| {
                         // Simple parent matching
-                        n.path.starts_with(path) && 
+                        n.path.starts_with(path) &&
                         n.path.matches('/').count() == path.matches('/').count() + 1
                     })
             })
             .cloned()
             .collect();
-        
+
         Ok(children)
     }
 
     async fn hydrate(&self, path: &str) -> Result<(), VfsError> {
         let mut nodes = self.nodes.write().await;
-        
+
         if let Some(node) = nodes.get_mut(path) {
             info!("Hydrating file: {}", path);
             node.state = FileState::Hydrated;
@@ -1458,35 +1470,35 @@ impl VfsBackend for InMemoryVfs {
 
     async fn create_file(&self, path: &str) -> Result<(), VfsError> {
         let mut nodes = self.nodes.write().await;
-        
+
         if nodes.contains_key(path) {
             return Err(VfsError::AlreadyExists(path.to_string()));
         }
-        
+
         let node = FileNode::file(path.to_string());
         nodes.insert(path.to_string(), node);
-        
+
         info!("Created file: {}", path);
         Ok(())
     }
 
     async fn create_dir(&self, path: &str) -> Result<(), VfsError> {
         let mut nodes = self.nodes.write().await;
-        
+
         if nodes.contains_key(path) {
             return Err(VfsError::AlreadyExists(path.to_string()));
         }
-        
+
         let node = FileNode::directory(path.to_string());
         nodes.insert(path.to_string(), node);
-        
+
         info!("Created directory: {}", path);
         Ok(())
     }
 
     async fn delete(&self, path: &str) -> Result<(), VfsError> {
         let mut nodes = self.nodes.write().await;
-        
+
         if nodes.remove(path).is_some() {
             info!("Deleted: {}", path);
             Ok(())
@@ -1509,10 +1521,10 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_get_file() {
         let vfs = InMemoryVfs::new();
-        
+
         vfs.create_file("/test.txt").await.unwrap();
         let status = vfs.get_status("/test.txt").await.unwrap();
-        
+
         assert_eq!(status.path, "/test.txt");
         assert!(!status.is_dir);
     }
@@ -1520,10 +1532,10 @@ mod tests {
     #[tokio::test]
     async fn test_hydrate_file() {
         let vfs = InMemoryVfs::new();
-        
+
         vfs.create_file("/test.txt").await.unwrap();
         vfs.hydrate("/test.txt").await.unwrap();
-        
+
         let status = vfs.get_status("/test.txt").await.unwrap();
         assert_eq!(status.state, FileState::Hydrated);
         assert!(status.size > 0);
@@ -1532,10 +1544,10 @@ mod tests {
     #[tokio::test]
     async fn test_delete_file() {
         let vfs = InMemoryVfs::new();
-        
+
         vfs.create_file("/test.txt").await.unwrap();
         vfs.delete("/test.txt").await.unwrap();
-        
+
         assert!(vfs.get_status("/test.txt").await.is_err());
     }
 }
@@ -1569,7 +1581,7 @@ impl SyncEngineApi {
 impl TwakeSyncApiServer for SyncEngineApi {
     async fn file_status(&self, path: String) -> Result<FileStatus, jsonrpsee::types::ErrorObjectOwned> {
         info!("file.status called: {}", path);
-        
+
         match self.vfs.get_status(&path).await {
             Ok(node) => Ok(FileStatus {
                 path: node.path,
@@ -1586,7 +1598,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
 
     async fn file_hydrate(&self, path: String) -> Result<bool, jsonrpsee::types::ErrorObjectOwned> {
         info!("file.hydrate called: {}", path);
-        
+
         match self.vfs.hydrate(&path).await {
             Ok(()) => Ok(true),
             Err(_) => Ok(false),
@@ -1599,7 +1611,7 @@ impl TwakeSyncApiServer for SyncEngineApi {
         recursive: Option<bool>,
     ) -> Result<Vec<FileNode>, jsonrpsee::types::ErrorObjectOwned> {
         info!("file.list called: {}, recursive: {:?}", path, recursive);
-        
+
         match self.vfs.list_dir(&path, recursive.unwrap_or(false)).await {
             Ok(nodes) => Ok(nodes),
             Err(_) => Ok(vec![]),
@@ -1677,6 +1689,7 @@ cargo run --bin twake-sync
 #### Task 3.6: Test with curl
 
 **Terminal 2:**
+
 ```bash
     # Test file.status
     curl -s --unix-socket "$SOCKET" \
@@ -1734,6 +1747,7 @@ make cef_app
 ```
 
 **Expected output:**
+
 ```
 Connected to IPC server
 Result: {
@@ -1764,12 +1778,12 @@ TOTAL_TIME=0
 
 for i in $(seq 1 $ITERATIONS); do
     START=$(date +%s%N)
-    
+
     curl -s --unix-socket "$SOCKET" \
         http://localhost/ \
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"file.status","params":"/test.txt","id":1}' > /dev/null
-    
+
     END=$(date +%s%N)
     ELAPSED=$((END - START))
     TOTAL_TIME=$((TOTAL_TIME + ELAPSED))
@@ -1881,12 +1895,14 @@ All streams can now develop in parallel using the established IPC contract.
 ## Appendix: Quick Commands
 
 ### Start IPC Server
+
 ```bash
 cd sync-engine
 cargo run --bin twake-sync
 ```
 
 ### Test IPC
+
 ```bash
 curl -X POST --unix-socket /tmp/twake-ipc.sock \
   http://localhost/ \
@@ -1895,12 +1911,14 @@ curl -X POST --unix-socket /tmp/twake-ipc.sock \
 ```
 
 ### Run Tests
+
 ```bash
 cd sync-engine
 cargo test --all
 ```
 
 ### Build Everything
+
 ```bash
 # Rust
 cargo build --release

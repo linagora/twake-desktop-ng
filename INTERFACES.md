@@ -129,7 +129,7 @@
 
 ### FileNode (Rust ↔ C++)
 
-> **Source de vérité pour les types partagés.** Les STREAM_*.md et les design specs
+> **Source de vérité pour les types partagés.** Les STREAM\_\*.md et les design specs
 > doivent s'aligner sur ces définitions. Le modèle interne Rust utilise `Uuid` et
 > `OffsetDateTime` ; la sérialisation JSON produit `String` et ISO 8601.
 

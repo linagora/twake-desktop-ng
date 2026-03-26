@@ -7,6 +7,7 @@ Accepted
 ## Context
 
 Twake Desktop NG requires a desktop application that:
+
 1. Hosts multiple Twake web applications (Drive, Mail, Calendar, etc.) in native windows
 2. Provides a Virtual File System (VFS) with on-demand file hydration
 3. Synchronizes files between local VFS and remote Twake server
@@ -14,6 +15,7 @@ Twake Desktop NG requires a desktop application that:
 5. Maintains security and isolation between components
 
 Technology choices considered:
+
 - Electron (Chromium + Node.js)
 - Tauri (WebView + Rust)
 - CEF (Chromium Embedded Framework) + Rust
@@ -52,19 +54,20 @@ Adopt a **two-process architecture**:
 
 ### Why CEF over Electron/Tauri?
 
-| Criteria | CEF | Electron | Tauri |
-|----------|-----|----------|-------|
-| Web rendering | ✅ Chromium | ✅ Chromium | ⚠️ System WebView |
-| Install size | ~100MB | ~150MB | ~10MB |
-| RAM idle | ~100-120MB | ~200-300MB | ~30MB |
-| Node.js exposure | ✅ No | ⚠️ Yes | ✅ No |
-| Security | High | Medium | High |
-| Cross-platform consistency | ✅ Guaranteed | ✅ Good | ⚠️ Varies |
-| C++ shell complexity | Moderate | N/A | N/A |
+| Criteria                   | CEF           | Electron    | Tauri             |
+| -------------------------- | ------------- | ----------- | ----------------- |
+| Web rendering              | ✅ Chromium   | ✅ Chromium | ⚠️ System WebView |
+| Install size               | ~100MB        | ~150MB      | ~10MB             |
+| RAM idle                   | ~100-120MB    | ~200-300MB  | ~30MB             |
+| Node.js exposure           | ✅ No         | ⚠️ Yes      | ✅ No             |
+| Security                   | High          | Medium      | High              |
+| Cross-platform consistency | ✅ Guaranteed | ✅ Good     | ⚠️ Varies         |
+| C++ shell complexity       | Moderate      | N/A         | N/A               |
 
 **Decision: CEF**
 
 **Rationale:**
+
 1. **Guaranteed rendering** - Bundled Chromium, identical to Chrome
 2. **Security** - No Node.js exposure, reduced attack surface
 3. **Stability** - 17 years of existence, used by Adobe, Spotify, Riot Games
@@ -142,24 +145,28 @@ Adopt a **two-process architecture**:
 ## Migration Path
 
 **Phase 1: POC (2-3 weeks)**
+
 - CEF shell setup with basic window management
 - IPC contract definition (JSON-RPC schema)
 - Rust sync engine skeleton with in-memory VFS
 - End-to-end test: WebView → IPC → VFS → response
 
 **Phase 2: MVP (3 months)**
+
 - Full VFS implementation on Linux (FUSE)
 - OIDC authentication
 - File hydration (download + write)
 - One web app (Drive) in native window
 
 **Phase 3: Production (6 months)**
+
 - Windows (ProjFS) and macOS (FileProvider) support
 - Conflict resolution UI
 - Multiple web apps
 - Auto-update infrastructure
 
 **Phase 4: CRDT (6-12 months)**
+
 - Migrate reconciliation engine to Yjs/CRDT
 - Real-time collaborative editing
 - Offline collaboration support

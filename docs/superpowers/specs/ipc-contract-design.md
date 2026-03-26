@@ -66,6 +66,7 @@ The IPC (Inter-Process Communication) contract defines how the CEF shell (C++) a
 Get file state (Ghost/Hydrated/Modified/Syncing/Conflict/Error).
 
 **Request:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -78,6 +79,7 @@ Get file state (Ghost/Hydrated/Modified/Syncing/Conflict/Error).
 ```
 
 **Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -96,6 +98,7 @@ Get file state (Ghost/Hydrated/Modified/Syncing/Conflict/Error).
 Download file content from remote.
 
 **Request:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -108,6 +111,7 @@ Download file content from remote.
 ```
 
 **Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -123,6 +127,7 @@ Download file content from remote.
 List directory contents.
 
 **Request:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -136,6 +141,7 @@ List directory contents.
 ```
 
 **Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -160,6 +166,7 @@ List directory contents.
 Subscribe to event stream.
 
 **Request:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -170,6 +177,7 @@ Subscribe to event stream.
 ```
 
 **Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -181,6 +189,7 @@ Subscribe to event stream.
 ```
 
 **Events (push):**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -201,6 +210,7 @@ Subscribe to event stream.
 Emit event from WebView to sync engine.
 
 **Request:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -214,6 +224,7 @@ Emit event from WebView to sync engine.
 ```
 
 **Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -343,20 +354,21 @@ pub struct FileStatus {
 
 ## Error Codes
 
-| Code   | Message                  | Description |
-|--------|--------------------------|-------------|
-| -32000 | File not found           | Path does not exist |
-| -32001 | Permission denied        | Access restricted |
-| -32002 | Network error            | Remote sync failed |
-| -32003 | Authentication required  | Token expired/invalid |
-| -32004 | File locked              | Cannot modify locked file |
-| -32005 | Disk full                | No space for hydration |
-| -32600 | Invalid request          | Malformed JSON-RPC |
-| -32601 | Method not found         | Unknown method |
-| -32602 | Invalid params           | Wrong parameter types |
-| -32700 | Parse error              | Invalid JSON |
+| Code   | Message                 | Description               |
+| ------ | ----------------------- | ------------------------- |
+| -32000 | File not found          | Path does not exist       |
+| -32001 | Permission denied       | Access restricted         |
+| -32002 | Network error           | Remote sync failed        |
+| -32003 | Authentication required | Token expired/invalid     |
+| -32004 | File locked             | Cannot modify locked file |
+| -32005 | Disk full               | No space for hydration    |
+| -32600 | Invalid request         | Malformed JSON-RPC        |
+| -32601 | Method not found        | Unknown method            |
+| -32602 | Invalid params          | Wrong parameter types     |
+| -32700 | Parse error             | Invalid JSON              |
 
 **Error Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -485,13 +497,13 @@ thiserror = "1.0"
 
 ## Risks and Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| **Socket permissions** | High | Document setup, use user-owned socket |
-| **Serialization bugs** | Medium | Comprehensive tests, version contract |
-| **Subscription leaks** | Medium | Timeout, auto-unsubscribe |
-| **Client disconnects** | Low | Reconnect logic, retry with backoff |
-| **Contract instability** | High | Version contract, backward compatible |
+| Risk                     | Impact | Mitigation                            |
+| ------------------------ | ------ | ------------------------------------- |
+| **Socket permissions**   | High   | Document setup, use user-owned socket |
+| **Serialization bugs**   | Medium | Comprehensive tests, version contract |
+| **Subscription leaks**   | Medium | Timeout, auto-unsubscribe             |
+| **Client disconnects**   | Low    | Reconnect logic, retry with backoff   |
+| **Contract instability** | High   | Version contract, backward compatible |
 
 ---
 
@@ -500,6 +512,7 @@ thiserror = "1.0"
 **Contract version:** 1.0 (MVP)
 
 **Backward compatibility:**
+
 - New methods are additive
 - Existing methods must not change signature
 - Deprecation requires 2 versions notice

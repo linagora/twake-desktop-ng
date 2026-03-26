@@ -59,11 +59,11 @@ pub trait VfsBackend: Send + Sync {
 
 ### 2. Platform Implementations
 
-| Platform | API | Crate | Status |
-|----------|-----|-------|--------|
-| **Linux** | FUSE | `fuse3` | ✅ MVP |
-| **Windows** | ProjFS | `projfs` | Phase 3 |
-| **macOS** | FileProvider | FFI | Phase 3 |
+| Platform    | API          | Crate    | Status  |
+| ----------- | ------------ | -------- | ------- |
+| **Linux**   | FUSE         | `fuse3`  | ✅ MVP  |
+| **Windows** | ProjFS       | `projfs` | Phase 3 |
+| **macOS**   | FileProvider | FFI      | Phase 3 |
 
 ### 3. File Node Model
 
@@ -107,6 +107,7 @@ pub enum FileState {
 ```
 
 **Transitions:**
+
 - `Ghost → Syncing`: File opened for read
 - `Syncing → Hydrated`: Download complete
 - `Syncing → Error`: Download failed
@@ -246,13 +247,13 @@ libc = "0.2"
 
 ## Risks and Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| **FUSE stability** | High | Isolate in separate process, auto-remount |
-| **Platform differences** | High | Abstract behind trait, test on each platform |
-| **File locking** | Medium | Detect, emit error, show UI message |
-| **Disk space** | Medium | Check before hydrate, warn user |
-| **Path encoding** | Low | Use UTF-8, reject invalid paths early |
+| Risk                     | Impact | Mitigation                                   |
+| ------------------------ | ------ | -------------------------------------------- |
+| **FUSE stability**       | High   | Isolate in separate process, auto-remount    |
+| **Platform differences** | High   | Abstract behind trait, test on each platform |
+| **File locking**         | Medium | Detect, emit error, show UI message          |
+| **Disk space**           | Medium | Check before hydrate, warn user              |
+| **Path encoding**        | Low    | Use UTF-8, reject invalid paths early        |
 
 ---
 

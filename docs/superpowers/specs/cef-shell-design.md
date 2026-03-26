@@ -45,6 +45,7 @@ The CEF Shell provides the desktop application framework that hosts Twake web ap
 ### 1. Window Management
 
 **Responsibilities:**
+
 - Create/Close/Minimize/Maximize windows
 - Native window decorations
 - Single instance lock
@@ -82,6 +83,7 @@ settings.no_sandbox = true;  // MVP only
 ### 2. JavaScript Bridge
 
 **Responsibilities:**
+
 - Inject `window.__twake` into Twake WebViews
 - Filter by domain (only on Twake domains)
 - Expose IPC methods to JavaScript
@@ -131,20 +133,21 @@ void JsBridge::injectBridge(CefRefPtr<CefBrowser> browser) {
 
 ```javascript
 // Synchronous
-const status = window.__twake.getFileStatus('/documents/test.txt');
+const status = window.__twake.getFileStatus("/documents/test.txt");
 
 // Asynchronous
-await window.__twake.hydrateFile('/documents/test.txt');
+await window.__twake.hydrateFile("/documents/test.txt");
 
 // Event subscription
-window.__twake.on('file_changed', (data) => {
-    console.log('File changed:', data.path, data.state);
+window.__twake.on("file_changed", (data) => {
+  console.log("File changed:", data.path, data.state);
 });
 ```
 
 ### 3. IPC Client
 
 **Responsibilities:**
+
 - Connect to Rust sync engine
 - Call JSON-RPC methods
 - Handle disconnections and retries
@@ -199,6 +202,7 @@ FileStatus IpcClient::getFileStatus(const std::string& path) {
 ### 4. Event Handler
 
 **Responsibilities:**
+
 - Receive events from Rust via IPC
 - Dispatch to appropriate WebViews
 - Handle event subscriptions
@@ -413,13 +417,13 @@ make -j$(nproc)
 
 ## Risks and Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| **CEF build complexity** | High | Use prebuilt binaries, document setup |
-| **Sandbox disabled** | Medium | Enable in production, MVP OK |
-| **IPC disconnects** | Medium | Reconnect logic, retry with backoff |
-| **Memory usage** | Medium | Monitor, limit number of windows |
-| **Renderer crash** | Low | Auto-reload, isolate by origin |
+| Risk                     | Impact | Mitigation                            |
+| ------------------------ | ------ | ------------------------------------- |
+| **CEF build complexity** | High   | Use prebuilt binaries, document setup |
+| **Sandbox disabled**     | Medium | Enable in production, MVP OK          |
+| **IPC disconnects**      | Medium | Reconnect logic, retry with backoff   |
+| **Memory usage**         | Medium | Monitor, limit number of windows      |
+| **Renderer crash**       | Low    | Auto-reload, isolate by origin        |
 
 ---
 
