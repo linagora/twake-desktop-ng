@@ -12,6 +12,7 @@ use futures_util::stream;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+use crate::cozy::CozyClient;
 use crate::models::{FileNode, FileState};
 
 const TTL: Duration = Duration::from_secs(1);
@@ -23,16 +24,30 @@ pub struct TwakeFuseFs {
     children: Arc<RwLock<HashMap<u64, Vec<u64>>>>,
     next_inode: Arc<RwLock<u64>>,
     cache_dir: PathBuf,
+    cozy: Option<CozyClient>,
 }
 
 impl TwakeFuseFs {
-    pub fn new(cache_dir: PathBuf) -> Self {
+    pub fn new(cache_dir: PathBuf, cozy: CozyClient) -> Self {
         Self {
             nodes: Arc::new(RwLock::new(HashMap::new())),
             path_to_inode: Arc::new(RwLock::new(HashMap::new())),
             children: Arc::new(RwLock::new(HashMap::new())),
             next_inode: Arc::new(RwLock::new(ROOT_INODE + 1)),
             cache_dir,
+            cozy: Some(cozy),
+        }
+    }
+
+    /// Create a TwakeFuseFs without a Cozy client (for tests).
+    pub fn new_without_cozy(cache_dir: PathBuf) -> Self {
+        Self {
+            nodes: Arc::new(RwLock::new(HashMap::new())),
+            path_to_inode: Arc::new(RwLock::new(HashMap::new())),
+            children: Arc::new(RwLock::new(HashMap::new())),
+            next_inode: Arc::new(RwLock::new(ROOT_INODE + 1)),
+            cache_dir,
+            cozy: None,
         }
     }
 
@@ -192,12 +207,10 @@ impl Filesystem for TwakeFuseFs {
         };
 
         if needs_hydration {
-            // For MVP: create a dummy file in cache to simulate hydration
-            // In production: this calls CozyClient.download() via a channel
-            let (cache_path, node_id) = {
+            let (cache_path, node_id, remote_id) = {
                 let nodes = self.nodes.read().await;
                 let node = nodes.get(&inode).unwrap();
-                (self.cache_path(node), node.id)
+                (self.cache_path(node), node.id, node.remote_id.clone())
             };
 
             info!("Hydrating ghost file (inode={}, id={})", inode, node_id);
@@ -207,9 +220,24 @@ impl Filesystem for TwakeFuseFs {
                 return Err(libc::EIO.into());
             }
 
-            // MVP: write placeholder content so read() works
-            let content = format!("[twake] placeholder content for {}\n", node_id);
-            if let Err(e) = tokio::fs::write(&cache_path, content.as_bytes()).await {
+            let content = match (&self.cozy, &remote_id) {
+                (Some(cozy), Some(rid)) => {
+                    info!("Downloading from Cozy: remote_id={}", rid);
+                    match cozy.download(rid).await {
+                        Ok(bytes) => bytes.to_vec(),
+                        Err(e) => {
+                            warn!("Cozy download failed: {}", e);
+                            return Err(libc::EIO.into());
+                        }
+                    }
+                }
+                _ => {
+                    // Fallback placeholder when no Cozy client or no remote_id
+                    format!("[twake] placeholder content for {}\n", node_id).into_bytes()
+                }
+            };
+
+            if let Err(e) = tokio::fs::write(&cache_path, &content).await {
                 warn!("Failed to write cache file: {}", e);
                 return Err(libc::EIO.into());
             }
@@ -354,7 +382,7 @@ mod tests {
 
     async fn setup() -> (TwakeFuseFs, TempDir) {
         let tmp = TempDir::new().unwrap();
-        let fs = TwakeFuseFs::new(tmp.path().to_path_buf());
+        let fs = TwakeFuseFs::new_without_cozy(tmp.path().to_path_buf());
 
         let docs = FileNode::new_ghost("/documents", true);
         let docs_ino = fs.register_node(docs, ROOT_INODE).await;
@@ -375,7 +403,7 @@ mod tests {
     #[tokio::test]
     async fn register_node_assigns_sequential_inodes() {
         let tmp = TempDir::new().unwrap();
-        let fs = TwakeFuseFs::new(tmp.path().to_path_buf());
+        let fs = TwakeFuseFs::new_without_cozy(tmp.path().to_path_buf());
 
         let n1 = FileNode::new_ghost("/a", true);
         let n2 = FileNode::new_ghost("/b", true);
@@ -511,7 +539,7 @@ mod tests {
     #[tokio::test]
     async fn readdir_empty_dir() {
         let tmp = TempDir::new().unwrap();
-        let fs = TwakeFuseFs::new(tmp.path().to_path_buf());
+        let fs = TwakeFuseFs::new_without_cozy(tmp.path().to_path_buf());
         let dir = FileNode::new_ghost("/empty", true);
         let dir_ino = fs.register_node(dir, ROOT_INODE).await;
 

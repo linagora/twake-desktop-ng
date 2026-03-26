@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use clap::Parser;
-use tracing::info;
+use tracing::{info, warn};
 
+use twake_sync::cozy::client::{CozyClient, ROOT_DIR_ID};
 use twake_sync::fuse::fuse_backend::{TwakeFuseFs, ROOT_INODE};
 use twake_sync::fuse::mount_fuse;
 use twake_sync::models::FileNode;
@@ -12,6 +14,18 @@ struct Args {
     /// Mount point path
     #[arg(short, long)]
     mount: PathBuf,
+
+    /// Cozy stack URL (e.g. https://pvi.stg.lin-saas.com)
+    #[arg(short = 'u', long)]
+    url: String,
+
+    /// Cozy Bearer token (from DevTools Network tab)
+    #[arg(short, long)]
+    token: String,
+
+    /// Session cookie string, e.g. "sess-cozyXXX=value; lemonldap=value"
+    #[arg(long)]
+    cookie: Option<String>,
 
     /// Cache directory for hydrated files
     #[arg(short, long)]
@@ -41,37 +55,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             PathBuf::from(home).join(".twake").join("cache")
         });
 
-    // Create mount point if needed
     tokio::fs::create_dir_all(&mount).await?;
     tokio::fs::create_dir_all(&cache_dir).await?;
 
+    info!("Cozy URL: {}", args.url);
     info!("Cache dir: {:?}", cache_dir);
 
-    let fs = TwakeFuseFs::new(cache_dir);
+    let cozy = CozyClient::new(&args.url, &args.token, args.cookie);
+    let fs = TwakeFuseFs::new(cache_dir, cozy.clone());
 
-    // Register demo files — in production this comes from Cozy changes feed
-    let docs_dir = FileNode::new_ghost("/documents", true);
-    let docs_inode = fs.register_node(docs_dir, ROOT_INODE).await;
+    // Populate the FUSE tree from Cozy
+    info!("Fetching file tree from Cozy...");
+    let entries = cozy.list_recursive(ROOT_DIR_ID).await?;
 
-    let mut file1 = FileNode::new_ghost("/documents/rapport.pdf", false);
-    file1.size = 5 * 1024 * 1024; // 5 MB
-    file1.modified = "2026-03-26T10:00:00Z".to_string();
-    fs.register_node(file1, docs_inode).await;
+    // Map cozy_id -> inode so we can build parent-child relationships
+    let mut path_to_inode: HashMap<String, u64> = HashMap::new();
+    path_to_inode.insert("/".to_string(), ROOT_INODE);
 
-    let mut file2 = FileNode::new_ghost("/documents/notes.txt", false);
-    file2.size = 1024;
-    file2.modified = "2026-03-26T09:00:00Z".to_string();
-    fs.register_node(file2, docs_inode).await;
+    // Sort entries so directories come before their children
+    let mut sorted = entries.clone();
+    sorted.sort_by(|a, b| a.path.cmp(&b.path));
 
-    let shared_dir = FileNode::new_ghost("/shared", true);
-    let shared_inode = fs.register_node(shared_dir, ROOT_INODE).await;
+    for entry in &sorted {
+        let mut node = FileNode::new_ghost(&entry.path, entry.is_dir);
+        node.remote_id = Some(entry.id.clone());
+        node.size = entry.size;
+        node.modified = entry.updated_at.clone();
 
-    let mut file3 = FileNode::new_ghost("/shared/spec.md", false);
-    file3.size = 2048;
-    file3.modified = "2026-03-25T14:00:00Z".to_string();
-    fs.register_node(file3, shared_inode).await;
+        let parent_path = std::path::Path::new(&entry.path)
+            .parent()
+            .map(|p| p.to_str().unwrap_or("/"))
+            .unwrap_or("/");
+        let parent_path = if parent_path.is_empty() { "/" } else { parent_path };
 
+        let parent_inode = path_to_inode.get(parent_path).copied().unwrap_or_else(|| {
+            warn!("Parent path {:?} not found for {:?}, attaching to root", parent_path, entry.path);
+            ROOT_INODE
+        });
+
+        let inode = fs.register_node(node, parent_inode).await;
+        path_to_inode.insert(entry.path.clone(), inode);
+    }
+
+    info!("Registered {} entries from Cozy", sorted.len());
     info!("Mounting FUSE at {:?}", mount);
+
     let mount_handle = mount_fuse(fs, mount.to_str().unwrap()).await?;
 
     info!("FUSE mounted. Use `fusermount3 -u {:?}` to unmount.", mount);
