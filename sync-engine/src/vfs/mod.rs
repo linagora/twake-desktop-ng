@@ -12,8 +12,6 @@ pub struct InMemoryVfs {
     nodes: RwLock<HashMap<String, FileNode>>,
 }
 
-// Clone not implemented - use Arc<InMemoryVfs> if sharing is needed
-
 impl InMemoryVfs {
     pub fn new() -> Self {
         Self {
@@ -41,10 +39,10 @@ impl VfsBackend for InMemoryVfs {
 
     async fn list_dir(&self, path: &Path) -> Result<Vec<FileNode>, VfsError> {
         let nodes = self.nodes.read().await;
-        let prefix = path.to_str().unwrap();
+        let prefix = path.to_str().unwrap().trim_end_matches('/');
 
         Ok(nodes.values()
-            .filter(|n| n.path.starts_with(prefix))
+            .filter(|n| n.path.starts_with(&format!("{}/", prefix)))
             .cloned()
             .collect())
     }
@@ -159,6 +157,25 @@ mod tests {
         
         let files = vfs.list_dir(Path::new("/test")).await.unwrap();
         assert_eq!(files.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_does_not_match_sibling_prefix() {
+        let vfs = InMemoryVfs::new();
+        
+        vfs.create_placeholder(
+            Path::new("/test/file1.txt"),
+            FileMetadata { size: 100, modified: "2026-01-01T00:00:00Z".to_string(), is_dir: false },
+        ).await.unwrap();
+        
+        vfs.create_placeholder(
+            Path::new("/testing/file2.txt"),
+            FileMetadata { size: 200, modified: "2026-01-01T00:00:00Z".to_string(), is_dir: false },
+        ).await.unwrap();
+        
+        let files = vfs.list_dir(Path::new("/test")).await.unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "/test/file1.txt");
     }
 
     #[tokio::test]

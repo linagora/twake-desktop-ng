@@ -31,7 +31,11 @@ impl<V: VfsBackend> HydrationService<V> {
 
         self.vfs.set_state(path, FileState::Syncing).await?;
 
-        self.download_file(path, &node).await?;
+        if let Err(e) = self.download_file(path, &node).await {
+            let _ = self.vfs.set_state(path, FileState::Error).await;
+            let _ = self.repo.update_state(path.to_str().unwrap(), FileState::Error).await;
+            return Err(e);
+        }
 
         self.vfs.set_state(path, FileState::Hydrated).await?;
         self.repo.update_state(path.to_str().unwrap(), FileState::Hydrated).await?;
@@ -82,7 +86,6 @@ mod tests {
         
         let service = HydrationService::new(vfs.clone(), repo);
         
-        // Use a temp directory to avoid permission issues
         let temp_dir = std::env::temp_dir();
         let path = temp_dir.join("test_hydrate_file.txt");
         
@@ -101,7 +104,6 @@ mod tests {
         
         assert_eq!(vfs.get_state(&path).await.unwrap(), FileState::Hydrated);
         
-        // Cleanup
         let _ = std::fs::remove_file(&path);
     }
 
