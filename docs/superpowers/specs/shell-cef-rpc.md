@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-26
 **Component:** Shell-CEF (Rust + CEF)
-**Status:** Draft
+**Status:** Implemented
 
 ---
 
@@ -186,6 +186,70 @@ Loads a URL in the embedded browser and returns the resulting HTML content (afte
 
 ---
 
+### `auth.oidc_start` — OIDC PKCE Authentication Flow
+
+Starts an OIDC PKCE authorization code flow, opens the browser for user login, and returns tokens upon success.
+
+**Request:**
+
+```json
+{
+  "action": "auth.oidc_start",
+  "params": {
+    "issuer": "https://sso.linagora.com",
+    "client_id": "tcalendar",
+    "redirect_uri": "http://localhost:5000/callback",
+    "pkce": true,
+    "scopes": ["openid", "profile", "email"]
+  }
+}
+```
+
+| Parameter       | Type    | Required | Default                           | Description                                    |
+|-----------------|---------|----------|-----------------------------------|------------------------------------------------|
+| `issuer`        | string  | yes      | —                                 | OIDC issuer URL                                |
+| `client_id`     | string  | yes      | —                                 | OAuth client ID                               |
+| `redirect_uri`  | string  | no       | `http://localhost:5000/callback`  | Callback URL                                  |
+| `pkce`          | boolean | no       | `false`                           | Enable PKCE flow                              |
+| `scopes`        | array   | no       | `["openid","profile","email"]`   | OAuth scopes                                  |
+
+**Response (success):**
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "access_token": "eyJ...",
+    "refresh_token": "eyJ...",
+    "id_token": "eyJ...",
+    "token_type": "Bearer",
+    "expires_in": 3600
+  },
+  "meta": {
+    "duration_ms": 12500,
+    "timestamp": "2026-03-26T10:30:12Z"
+  }
+}
+```
+
+**Response (error):**
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "Failed to open browser: ..."
+  },
+  "meta": {
+    "duration_ms": 123,
+    "timestamp": "2026-03-26T10:30:00Z"
+  }
+}
+```
+
+---
+
 ## Future Actions (not implemented, reserved)
 
 These actions illustrate the protocol's extensibility. They are not part of the MVP.
@@ -199,37 +263,6 @@ These actions illustrate the protocol's extensibility. They are not part of the 
 | `page.cookies`      | Read/write browser cookies                             |
 | `shell.status`      | Get shell status (version, uptime, memory)             |
 | `shell.quit`        | Gracefully shut down the shell-CEF                     |
-
-**Example future action `auth.oidc_start`:**
-
-```json
-{
-  "action": "auth.oidc_start",
-  "params": {
-    "issuer": "https://auth.twake.app",
-    "client_id": "desktop-interactive",
-    "redirect_uri": "http://localhost:9876/callback",
-    "scopes": ["openid", "profile", "email", "offline_access"]
-  }
-}
-```
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "access_token": "eyJ...",
-    "refresh_token": "eyJ...",
-    "id_token": "eyJ...",
-    "expires_in": 3600,
-    "token_type": "Bearer"
-  },
-  "meta": {
-    "duration_ms": 12500,
-    "timestamp": "2026-03-26T10:30:12Z"
-  }
-}
-```
 
 ---
 
