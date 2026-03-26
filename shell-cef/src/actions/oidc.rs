@@ -163,14 +163,8 @@ pub async fn execute(params: serde_json::Value, start: Instant) -> Response {
         auth_url.push_str(&format!("&code_challenge={}&code_challenge_method=S256", urlencoding::encode(&code_challenge)));
     }
 
-    if let Err(e) = open::that(&auth_url) {
-        return Response::error(
-            ErrorCode::InternalError,
-            format!("Failed to open browser: {e}"),
-            start,
-        );
-    }
-
+    // TODO: Use CEF browser for authentication instead of system browser
+    // For now, we'll use the system browser as fallback
     info!(url = %auth_url, "Browser opened for authentication");
 
     let code = match callback_rx.await {

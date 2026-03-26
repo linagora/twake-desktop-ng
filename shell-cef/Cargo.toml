@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
+name = "twake-shell-cef"
+path = "src/main.rs"
+
+[[bin]]
 name = "twake-get"
 path = "src/client.rs"
 
@@ -26,7 +30,9 @@ base64 = "0.22"
 urlencoding = "2"
 rand = "0.8"
 futures-util = "0.3"
-open = "5"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+cef = { version = "145.6.1", default-features = false, features = [] }
 
 [dev-dependencies]
 tempfile = "3"
