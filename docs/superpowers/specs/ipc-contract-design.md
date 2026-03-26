@@ -1,15 +1,15 @@
 # IPC Contract Design Spec
 
-**Date:** 2026-03-25  
-**Component:** Sync Engine (Rust)  
-**Stream:** C - IPC + Network  
+**Date:** 2026-03-26
+**Component:** Sync Engine (Rust) ↔ Electron Shell (TypeScript)
+**Stream:** C - IPC + Network
 **Status:** Draft
 
 ---
 
 ## Overview
 
-The IPC (Inter-Process Communication) contract defines how the CEF shell (C++) and sync engine (Rust) communicate. It uses JSON-RPC 2.0 over Unix sockets (Linux/macOS) or named pipes (Windows).
+The IPC (Inter-Process Communication) contract defines how the Electron shell (TypeScript) and sync engine (Rust sidecar) communicate. It uses JSON-RPC 2.0 over Unix sockets (Linux/macOS) or named pipes (Windows).
 
 **Design principle:** Minimal, stable contract that enables parallel development.
 
@@ -18,22 +18,38 @@ The IPC (Inter-Process Communication) contract defines how the CEF shell (C++) a
 ## Architecture
 
 ```
-┌──────────────────────┐                    ┌──────────────────────┐
-│   CEF Shell (C++)    │                    │  Sync Engine (Rust)  │
-│                      │                    │                      │
-│  ┌──────────────┐    │   JSON-RPC 2.0     │  ┌──────────────┐   │
-│  │ IPC Client   │────┼────────────────────┼──│ IPC Server   │   │
-│  │              │    │   Unix Socket      │  │              │   │
-│  │ - getFileStatus    │   /tmp/twake-ipc   │  │ - file.*     │   │
-│  │ - hydrateFile      │                    │  │ - events.*   │   │
-│  │ - listFiles        │                    │  │ - auth.*     │   │
-│  └──────────────┘    │                    │  └──────────────┘   │
-│                      │                    │                      │
-│  ┌──────────────┐    │                    │  ┌──────────────┐   │
-│  │ JS Bridge    │────┤                    │  │  Event Bus   │   │
-│  │ window.__twake     │                    │  │              │   │
-│  └──────────────┘    │                    │  └──────────────┘   │
-└──────────────────────┘                    └──────────────────────┘
+┌─────────────────────────┐                    ┌──────────────────────┐
+│  Electron Shell (TS)    │                    │  Sync Engine (Rust)  │
+│                         │                    │                      │
+│  ┌───────────────┐      │   JSON-RPC 2.0     │  ┌──────────────┐   │
+│  │ SidecarManager│──────┼────────────────────┼──│ IPC Server   │   │
+│  │ (net.Socket)  │      │   Unix Socket      │  │ (jsonrpsee)  │   │
+│  │               │      │                    │  │              │   │
+│  │ - file.*      │      │                    │  │ - file.*     │   │
+│  │ - events.*    │      │                    │  │ - events.*   │   │
+│  │ - auth.*      │      │                    │  │ - auth.*     │   │
+│  └───────────────┘      │                    │  └──────────────┘   │
+│                         │                    │                      │
+│  ┌───────────────┐      │                    │  ┌──────────────┐   │
+│  │ Preload.ts    │      │                    │  │  Event Bus   │   │
+│  │ contextBridge │      │                    │  │              │   │
+│  │ window.__twake│      │                    │  │              │   │
+│  └───────────────┘      │                    │  └──────────────┘   │
+└─────────────────────────┘                    └──────────────────────┘
+```
+
+**Data flow (renderer → Rust):**
+
+```
+Renderer (SPA)
+  → window.__twake.hydrateFile('/test.txt')    [contextBridge]
+  → ipcRenderer.invoke('twake:file:hydrate')   [Electron IPC]
+  → Main process ipc-bridge.ts                 [ipcMain.handle]
+  → SidecarManager.call('file.hydrate', {...}) [Unix socket]
+  → Rust IPC server                            [jsonrpsee]
+  → VFS hydrate                                [business logic]
+  → JSON-RPC response                          [socket]
+  → Promise resolved in SPA                    [back up the chain]
 ```
 
 ---
@@ -42,19 +58,19 @@ The IPC (Inter-Process Communication) contract defines how the CEF shell (C++) a
 
 ### Unix Socket (Linux/macOS)
 
-- **Path:** `/tmp/twake-ipc.sock` (configurable)
-- **Permissions:** 666 (MVP), restrict in production
-- **Protocol:** JSON-RPC 2.0 over stream socket
+- **Path:** `$XDG_RUNTIME_DIR/twake-ipc.sock` or `~/.twake/ipc.sock` (fallback)
+- **Permissions:** User-owned (600)
+- **Protocol:** JSON-RPC 2.0 over stream socket, newline-delimited
 
 ### Named Pipe (Windows)
 
-- **Path:** `\\\\.\\pipe\\twake-ipc`
+- **Path:** `\\.\pipe\twake-ipc`
 - **Protocol:** JSON-RPC 2.0 over named pipe
 
 ### Connection Management
 
-- **Client:** Connect on first call, reconnect on failure
-- **Server:** Listen for multiple clients (CEF shell + tools)
+- **Client (Electron):** Connect on sidecar start, reconnect on failure
+- **Server (Rust):** Listen for multiple clients (Electron + CLI tools)
 - **Timeout:** 30 seconds for method calls
 
 ---
@@ -71,9 +87,7 @@ Get file state (Ghost/Hydrated/Modified/Syncing/Conflict/Error).
 {
   "jsonrpc": "2.0",
   "method": "file.status",
-  "params": {
-    "path": "/documents/test.txt"
-  },
+  "params": { "path": "/documents/test.txt" },
   "id": 1
 }
 ```
@@ -103,9 +117,7 @@ Download file content from remote.
 {
   "jsonrpc": "2.0",
   "method": "file.hydrate",
-  "params": {
-    "path": "/documents/test.txt"
-  },
+  "params": { "path": "/documents/test.txt" },
   "id": 2
 }
 ```
@@ -115,9 +127,7 @@ Download file content from remote.
 ```json
 {
   "jsonrpc": "2.0",
-  "result": {
-    "success": true
-  },
+  "result": { "success": true },
   "id": 2
 }
 ```
@@ -132,10 +142,7 @@ List directory contents.
 {
   "jsonrpc": "2.0",
   "method": "file.list",
-  "params": {
-    "path": "/documents",
-    "recursive": false
-  },
+  "params": { "path": "/documents", "recursive": false },
   "id": 3
 }
 ```
@@ -161,6 +168,34 @@ List directory contents.
 }
 ```
 
+### auth.token
+
+Get current authentication token.
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "auth.token",
+  "params": {},
+  "id": 4
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "access_token": "eyJhbG...",
+    "expires_in": 3600
+  },
+  "id": 4
+}
+```
+
 ### events.subscribe
 
 Subscribe to event stream.
@@ -172,7 +207,7 @@ Subscribe to event stream.
   "jsonrpc": "2.0",
   "method": "events.subscribe",
   "params": [],
-  "id": 4
+  "id": 5
 }
 ```
 
@@ -181,10 +216,8 @@ Subscribe to event stream.
 ```json
 {
   "jsonrpc": "2.0",
-  "result": {
-    "subscription": 1
-  },
-  "id": 4
+  "result": { "subscription": 1 },
+  "id": 5
 }
 ```
 
@@ -207,7 +240,7 @@ Subscribe to event stream.
 
 ### events.emit
 
-Emit event from WebView to sync engine.
+Emit event from shell to sync engine.
 
 **Request:**
 
@@ -219,7 +252,7 @@ Emit event from WebView to sync engine.
     "event": "file.edited",
     "data": "{\"path\":\"/documents/test.txt\"}"
   },
-  "id": 5
+  "id": 6
 }
 ```
 
@@ -229,7 +262,7 @@ Emit event from WebView to sync engine.
 {
   "jsonrpc": "2.0",
   "result": null,
-  "id": 5
+  "id": 6
 }
 ```
 
@@ -322,13 +355,13 @@ pub enum FileState {
 
 ### FileNode
 
-> Aligné sur INTERFACES.md (source de vérité).
+> Aligne sur INTERFACES.md (source de verite).
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
-    pub id: Uuid,              // UUID v4 (sérialisé en string JSON)
-    pub remote_id: Option<String>, // ID côté serveur Cozy
+    pub id: Uuid,
+    pub remote_id: Option<String>,
     pub path: String,
     pub state: FileState,
     pub size: u64,
@@ -384,28 +417,29 @@ pub struct FileStatus {
 
 ## JavaScript Bridge API
 
-```javascript
-// Injected by CEF into Twake WebViews
-window.__twake = {
-  // Synchronous (blocking, use sparingly)
-  getFileStatus(path: string): FileStatus,
+```typescript
+// Exposed via contextBridge.exposeInMainWorld('__twake', {...})
+// in Electron preload script
 
-  // Asynchronous (preferred)
-  async hydrateFile(path: string): Promise<{ success: boolean, error?: string }>,
-  async listFiles(path: string, recursive: boolean): Promise<FileNode[]>,
+window.__twake = {
+  // Async (all operations go through main process to Rust)
+  getFileStatus(path: string): Promise<FileStatus>,
+  hydrateFile(path: string): Promise<{ success: boolean; error?: string }>,
+  listFiles(path: string, recursive?: boolean): Promise<FileNode[]>,
+  getToken(): Promise<{ access_token: string; expires_in: number } | null>,
+  startAuth(): Promise<{ access_token: string; expires_in: number }>,
 
   // Event subscription
-  on(event: string, callback: (data: any) => void): void,
-  off(event: string, callback: (data: any) => void): void,
+  on(event: string, callback: (data: any) => void): () => void,
 };
 
 // Example usage
-const status = window.__twake.getFileStatus('/documents/test.txt');
+const status = await window.__twake.getFileStatus('/documents/test.txt');
 console.log('State:', status.state);
 
 await window.__twake.hydrateFile('/documents/test.txt');
 
-window.__twake.on('file_changed', (data) => {
+const unsub = window.__twake.on('file_changed', (data) => {
   console.log('File changed:', data.path, data.state);
 });
 ```
@@ -435,6 +469,9 @@ pub trait TwakeSyncApi {
         recursive: Option<bool>,
     ) -> RpcResult<Vec<FileNode>>;
 
+    #[method(name = "auth.token")]
+    async fn auth_token(&self) -> RpcResult<TokenInfo>;
+
     #[subscription(name = "events.subscribe", item = TwakeEvent)]
     async fn subscribe_events(&self) -> SubscriptionResult;
 
@@ -443,18 +480,22 @@ pub trait TwakeSyncApi {
 }
 ```
 
-### C++ Client
+### TypeScript Client (SidecarManager)
 
-```cpp
-class IpcClient {
-public:
-    bool connect(const std::string& socket_path);
-    void disconnect();
+```typescript
+class SidecarManager {
+  private socket: Socket;
+  private pending: Map<number, { resolve; reject }>;
 
-    FileStatus getFileStatus(const std::string& path);
-    bool hydrateFile(const std::string& path);
-    std::vector<FileNode> listFiles(const std::string& path, bool recursive);
-};
+  async call(method: string, params: object): Promise<unknown> {
+    const id = ++this.requestId;
+    const msg = JSON.stringify({ jsonrpc: "2.0", method, params, id }) + "\n";
+    this.socket.write(msg);
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+    });
+  }
+}
 ```
 
 ---
@@ -476,8 +517,8 @@ public:
 
 ### E2E Tests
 
-- WebView → IPC → VFS → response
-- Event propagation (Rust → C++ → JS)
+- SPA → contextBridge → ipcRenderer → main → socket → Rust → response
+- Event propagation (Rust → socket → main → ipcRenderer → SPA)
 - Error handling (disconnect, timeout)
 
 ---
@@ -499,7 +540,7 @@ thiserror = "1.0"
 
 | Risk                     | Impact | Mitigation                            |
 | ------------------------ | ------ | ------------------------------------- |
-| **Socket permissions**   | High   | Document setup, use user-owned socket |
+| **Socket permissions**   | High   | User-owned socket, document setup     |
 | **Serialization bugs**   | Medium | Comprehensive tests, version contract |
 | **Subscription leaks**   | Medium | Timeout, auto-unsubscribe             |
 | **Client disconnects**   | Low    | Reconnect logic, retry with backoff   |
@@ -521,8 +562,8 @@ thiserror = "1.0"
 
 ## References
 
-- [STREAM_C_IPC_NETWORK.md](../../STREAM_C_IPC_NETWORK.md) - Implementation guide
-- [STREAM_A_CEF.md](../../STREAM_A_CEF.md) - IPC client implementation
-- [INTERFACES.md](../../INTERFACES.md) - Interface contracts
+- [STREAM_C_IPC_NETWORK.md](../../../STREAM_C_IPC_NETWORK.md) - Implementation guide
+- [STREAM_A_ELECTRON.md](../../../STREAM_A_ELECTRON.md) - Electron shell + sidecar client
+- [INTERFACES.md](../../../INTERFACES.md) - Interface contracts
 - [jsonrpsee Documentation](https://docs.rs/jsonrpsee/)
 - [JSON-RPC 2.0 Spec](https://www.jsonrpc.org/specification)

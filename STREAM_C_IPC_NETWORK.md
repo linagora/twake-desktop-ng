@@ -4,6 +4,9 @@
 **Stack:** Rust, jsonrpsee, tokio, reqwest  
 **Objectif:** IPC server, event bus, OIDC auth, network layer
 
+> **Note:** Le client IPC est maintenant en TypeScript (Electron) au lieu de C++.
+> Le contrat JSON-RPC reste identique. Seul le transport change cote client.
+
 ---
 
 ## Jour 1 — Contrat IPC et Server

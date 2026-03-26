@@ -1,13 +1,13 @@
-# Twake Desktop NG - Plan de Développement
+# Twake Desktop NG - Plan de Developpement
 
-**Date:** 2026-03-25  
-**Version:** 1.0  
-**Équipe:** 3 développeurs + IA  
-**Objectif:** Développement parallèle sans blocages mutuels
+**Date:** 2026-03-26
+**Version:** 2.0
+**Equipe:** 3 developpeurs + IA
+**Objectif:** Developpement parallele sans blocages mutuels
 
 ---
 
-## Architecture du Découpage
+## Architecture du Decoupage
 
 ```
                     ┌─────────────────────┐
@@ -19,356 +19,180 @@
           ▼                    ▼                    ▼
    ┌─────────────┐     ┌─────────────┐      ┌─────────────┐
    │  Stream A   │     │  Stream B   │      │  Stream C   │
-   │   CEF Shell │     │ Sync Core   │      │   IPC +     │
-   │   (C++)     │     │  (Rust)     │      │  Network    │
+   │  Electron   │     │ Sync Core   │      │   IPC +     │
+   │  Shell (TS) │     │  (Rust)     │      │  Network    │
    └─────────────┘     └─────────────┘      └─────────────┘
 ```
 
-**Principe:** Chacun travaille indépendamment, seules les interfaces sont partagées.
+**Principe:** Chacun travaille independamment, seules les interfaces sont partagees.
 
 ---
 
-## Stream A — CEF Shell (C++)
+## Stream A -- Electron Shell (TypeScript)
 
-**Responsable:** Dev 1  
-**Stack:** C++, CMake, CEF
+**Responsable:** Dev 1
+**Stack:** TypeScript, Electron, esbuild
 
 ### Objectifs
 
-- Shell CEF pour héberger les WebViews Twake
-- Gestion des fenêtres natives
+- Shell Electron pour heberger les SPAs locales et WebViews Twake
+- Gestion des fenetres natives (BrowserWindow)
 - Tray icon et notifications OS
-- Bridge JavaScript ↔ IPC
-- Client IPC pour communiquer avec le sync engine
+- Bridge JavaScript via contextBridge (`window.__twake`)
+- Sidecar manager pour le sync engine Rust
+- Authentification OIDC PKCE
 
 ### Livrables
 
-#### A1. Infrastructure CEF
+#### A1. Infrastructure Electron
 
-- [ ] Setup CMake avec CEF prebuilt binaries
-- [ ] CEF initialization (CefInitialize, message loop)
-- [ ] Browser creation (multi-window support)
-- [ ] Renderer process isolation (one per origin)
-- [ ] Crash recovery (renderer crash → reload window)
+- [ ] Setup npm + TypeScript + esbuild
+- [ ] BrowserWindow avec sandbox + contextIsolation
+- [ ] Protocole custom `twake://bundle/` pour servir la SPA locale
+- [ ] CSP headers via protocol handler
+- [ ] Single instance lock
 
 #### A2. Window Management
 
 - [ ] Create/Close/Minimize/Maximize windows
-- [ ] Native window decorations
-- [ ] Single instance lock
-- [ ] Window persistence (position, size)
+- [ ] Show on `ready-to-show` (startup rapide)
+- [ ] Navigation restrictions (protocoles autorises)
+- [ ] Window open handler (deny par defaut)
 
 #### A3. Native Integration
 
-- [ ] Tray icon (Windows/Mac/Linux)
-- [ ] Context menu (open, quit, settings)
-- [ ] Native notifications (WinRT/NSUserNotification/libnotify)
-- [ ] App launcher (open VFS files with external editors)
+- [ ] Tray icon (Electron `Tray` API)
+- [ ] Context menu
+- [ ] Notifications (Electron `Notification` API)
 
-#### A4. JavaScript Bridge
+#### A4. JavaScript Bridge (contextBridge)
 
-- [ ] Bridge injection (`window.__twake`)
-- [ ] Domain filtering (only on Twake domains)
-- [ ] Method registration (getFileStatus, requestHydration, emit)
-- [ ] Event dispatch (Rust → JS via CefProcessMessage)
-- [ ] Security: inject only on trusted domains
+- [ ] Preload script avec `contextBridge.exposeInMainWorld`
+- [ ] Methodes exposees : getFileStatus, hydrateFile, listFiles, getToken, startAuth
+- [ ] Event subscription (on/off avec unsubscribe)
+- [ ] Validation des arguments (type checking)
+- [ ] Channel whitelist dans le main process
 
-#### A5. IPC Client
+#### A5. Sidecar Manager
 
-- [ ] JSON-RPC client implementation
-- [ ] Unix socket / named pipe connection
-- [ ] Method calls to Rust engine
-- [ ] Event subscription (receive from Rust)
-- [ ] Error handling and retry logic
+- [ ] Spawn du binaire Rust au demarrage
+- [ ] Connexion Unix socket
+- [ ] JSON-RPC client
+- [ ] Auto-restart en cas de crash
+- [ ] Graceful shutdown
 
-### Dépendances
+#### A6. Auth OIDC
 
-**Bloquante:** Contrat IPC (JSON-RPC schema) — 3 jours max d'attente
+- [ ] `.well-known` discovery
+- [ ] PKCE flow avec fenetre auth dediee
+- [ ] Callback HTTP local (127.0.0.1:random_port)
+- [ ] Token storage chiffre via `safeStorage`
+- [ ] Token refresh
+
+### Dependances
+
+**Bloquante:** Contrat IPC (JSON-RPC schema) -- 3 jours max d'attente
 
 **Non bloquantes:**
 
-- Peut préparer l'environnement CEF pendant l'attente
-- Peut développer le bridge JS sans IPC réel (mock)
+- Peut preparer l'Electron shell pendant l'attente
+- Peut developper le bridge avec mock IPC handlers
 
 ### Fichiers Source
 
 ```
-src/
-  cef/
-    CMakeLists.txt
-    main.cpp
-    app/
-      browser_app.cpp/h
-      render_app.cpp/h
-    browser/
-      window_manager.cpp/h
-      tray_icon.cpp/h
-      notification.cpp/h
-    bridge/
-      js_bridge.cpp/h
-      domain_filter.cpp/h
-    ipc/
-      ipc_client.cpp/h
-      json_rpc_client.cpp/h
+electron-shell/
+  package.json
+  tsconfig.json
+  electron-builder.yml
+  src/
+    main.ts
+    preload.ts
+    windows.ts
+    protocol.ts
+    ipc-bridge.ts
+    sidecar.ts
+    auth.ts
+    tray.ts
+  renderer/
+    index.html
+    app.js
+    styles.css
 ```
 
 ---
 
-## Stream B — Sync Core (Rust)
+## Stream B -- Sync Core (Rust)
 
-**Responsable:** Dev 2  
+**Responsable:** Dev 2
 **Stack:** Rust, tokio, FUSE, SQLite
+
+(Inchange par rapport a la version precedente -- le sync engine Rust n'est pas affecte par la migration Electron)
 
 ### Objectifs
 
 - Moteur de synchronisation VFS
 - Gestion des fichiers placeholders
-- Reconciliation avec stratégie last-write-wins
-- Base de données locale pour métadonnées
+- Reconciliation avec strategie last-write-wins
+- Base de donnees locale pour metadonnees
 
 ### Livrables
 
-#### B1. Core Models
+(Voir [STREAM_B_SYNC_CORE.md](STREAM_B_SYNC_CORE.md) pour le detail)
 
-- [ ] FileNode struct (UUID, path, state, version, parent_id)
-- [ ] FileState enum (Ghost, Hydrated, Modified, Syncing, Conflict, Error)
-- [ ] Version type (semantic versioning or vector clock)
-- [ ] Uuid generation (v4)
+### Dependances
 
-#### B2. VFS Trait
-
-- [ ] Common VFS trait definition
-- [ ] FileNodeState trait for state management
-- [ ] Path resolution (UUID → path, path → UUID)
-- [ ] Directory listing (recursive, filtered)
-- [ ] File operations (metadata, size, modified time)
-
-#### B3. FUSE Backend (Linux)
-
-- [ ] FUSE 3.x integration (fuse3 crate)
-- [ ] File system mounting
-- [ ] Placeholder file creation
-- [ ] On-demand hydration trigger
-- [ ] File event watching (notify crate)
-
-#### B4. Database Layer
-
-- [ ] SQLite schema with sqlx
-- [ ] FileNode persistence
-- [ ] Version tracking
-- [ ] Migrations system
-- [ ] Async queries (tokio-postgres or sqlx with tokio)
-
-#### B5. Reconciliation Engine
-
-- [ ] ReconciliationEngine trait definition
-- [ ] CouchStyleEngine implementation
-- [ ] Last-write-wins strategy
-- [ ] Conflict detection (version comparison)
-- [ ] Backup copy creation on conflict
-- [ ] Manual resolution support
-
-#### B6. Local File Watching
-
-- [ ] File change detection (notify crate)
-- [ ] Debouncing for batched changes
-- [ ] Modified file tracking
-- [ ] Sync trigger on local changes
-
-### Dépendances
-
-**AUCUNE** — 100% indépendant
-
-Peut commencer immédiatement, ne touche pas à l'IPC ni au réseau.
-
-### Fichiers Source
-
-```
-sync-engine/
-  Cargo.toml
-  src/
-    lib.rs
-    models/
-      mod.rs
-      file_node.rs
-      file_state.rs
-      version.rs
-      uuid.rs
-    vfs/
-      mod.rs
-      vfs_trait.rs
-      fuse_backend.rs
-      projfs_backend.rs (placeholder for Windows)
-      fileprovider_backend.rs (placeholder for macOS)
-    db/
-      mod.rs
-      schema.rs
-      migrations.rs
-      repository.rs
-    reconciliation/
-      mod.rs
-      engine_trait.rs
-      couch_engine.rs
-      conflict_resolver.rs
-    watcher/
-      mod.rs
-      file_watcher.rs
-      debouncer.rs
-```
-
-### Tests
-
-- [ ] Unit tests for models
-- [ ] Integration tests for VFS trait
-- [ ] FUSE tests (placeholder creation, hydration)
-- [ ] Database tests (CRUD, migrations)
-- [ ] Reconciliation tests (conflict detection, resolution)
+**AUCUNE** -- 100% independant
 
 ---
 
-## Stream C — IPC + Network (Rust)
+## Stream C -- IPC + Network (Rust)
 
-**Responsable:** Dev 3  
+**Responsable:** Dev 3
 **Stack:** Rust, jsonrpsee, tokio, reqwest
+
+(Essentiellement inchange -- le serveur IPC Rust communique via Unix socket, peu importe que le client soit en C++ ou TypeScript)
 
 ### Objectifs
 
-- Définir le contrat IPC (JSON-RPC schema)
-- Implémenter le server IPC
-- Gérer les événements entre processus
-- Authentification OIDC
-- Synchronisation réseau avec serveur Twake
+- Definir le contrat IPC (JSON-RPC schema)
+- Implementer le server IPC
+- Gerer les evenements entre processus
+- Authentification OIDC (cote serveur)
+- Synchronisation reseau avec serveur Twake
 
 ### Livrables
 
-#### C1. IPC Contract (PRIORITAIRE — Jour 1-3)
+(Voir [STREAM_C_IPC_NETWORK.md](STREAM_C_IPC_NETWORK.md) pour le detail)
 
-- [ ] JSON-RPC schema definition
-- [ ] Method definitions:
-  - `file.status(path: String) -> FileStatus`
-  - `file.hydrate(path: String) -> Result<()>`
-  - `file.list(path: String) -> Vec<FileNode>`
-  - `events.subscribe() -> EventStream`
-  - `events.emit(event: String, data: String) -> Result<()>`
-- [ ] Event type definitions:
-  - `FileChanged { path, status }`
-  - `SyncStarted { path }`
-  - `SyncCompleted { path }`
-  - `Conflict { path, versions }`
-  - `Notification { app, payload }`
-- [ ] Error types and codes
-- [ ] Documentation (OpenAPI-style or JSON Schema)
+### Dependances
 
-#### C2. IPC Server
-
-- [ ] jsonrpsee server setup (Unix socket)
-- [ ] Method handlers (delegate to Sync Core)
-- [ ] Event subscription (broadcast channel)
-- [ ] Connection management (multiple clients)
-- [ ] Graceful shutdown
-
-#### C3. Event Bus
-
-- [ ] tokio::sync::broadcast channel
-- [ ] Event publishing (internal + IPC)
-- [ ] Event subscription (internal + IPC)
-- [ ] Event aggregation (merge events from multiple sources)
-- [ ] Event forwarding to CEF shell
-
-#### C4. OIDC Authentication
-
-- [ ] .well-known discovery client
-- [ ] PKCE flow implementation
-- [ ] Authorization code exchange
-- [ ] Token refresh logic
-- [ ] Token storage (keyring crate)
-- [ ] Session management
-
-#### C5. Network Layer
-
-- [ ] WebSocket client (tokio-tungstenite)
-- [ ] SSE client (reqwest)
-- [ ] HTTP fallback (reqwest)
-- [ ] Connection pooling
-- [ ] Retry logic with backoff
-- [ ] Offline detection
-
-#### C6. Sync Protocol
-
-- [ ] File metadata sync (remote → local)
-- [ ] File upload (local → remote)
-- [ ] Delta sync (only changed files)
-- [ ] Batch operations
-- [ ] Conflict detection (remote vs local)
-
-### Dépendances
-
-**AUCUNE** — Peut commencer immédiatement
-
-Le contrat IPC (C1) est le premier livrable et sert aux Streams A et C.
-
-### Fichiers Source
-
-```
-sync-engine/
-  src/
-    ipc/
-      mod.rs
-      contract.rs          # JSON-RPC schema
-      server.rs            # jsonrpsee server
-      types.rs             # Request/Response types
-    events/
-      mod.rs
-      bus.rs               # tokio::broadcast
-      types.rs             # Event enum
-    auth/
-      mod.rs
-      oidc.rs              # OIDC PKCE flow
-      token_storage.rs     # keyring integration
-    network/
-      mod.rs
-      websocket.rs
-      sse.rs
-      http_client.rs
-    sync/
-      mod.rs
-      protocol.rs          # Sync protocol with server
-      uploader.rs
-      downloader.rs
-```
-
-### Tests
-
-- [ ] IPC contract tests (schema validation)
-- [ ] IPC server tests (method calls, subscriptions)
-- [ ] Event bus tests (publish/subscribe)
-- [ ] OIDC tests (mock SSO server)
-- [ ] Network tests (mock server)
+**AUCUNE** -- Peut commencer immediatement
 
 ---
 
-## Ordre d'Exécution
+## Ordre d'Execution
 
 ### Semaine 1
 
 ```
 Jour 1-3:
-├─► Dev C: Écrire contrat IPC (C1) — PRIORITAIRE
+├─► Dev C: Ecrire contrat IPC (C1) -- PRIORITAIRE
 ├─► Dev B: Commencer Sync Core (B1, B2, B4)
-└─► Dev A: Préparer CEF build environment (CEF binaries, CMake)
+└─► Dev A: Setup Electron (npm, BrowserWindow, protocol, preload)
 
 Jour 4-5:
 ├─► Dev C: IPC Server (C2) + Event Bus (C3)
 ├─► Dev B: FUSE Backend (B3) + Reconciliation (B5)
-└─► Dev A: Commencer CEF Shell (A1, A2) + IPC Client (A5)
+└─► Dev A: Auth OIDC (A6) + Sidecar Manager (A5)
 ```
 
 ### Semaine 2-4
 
 ```
-Stream A (CEF):
-├─ Semaine 2: Window management, tray, notifications (A2, A3)
-├─ Semaine 3: JavaScript bridge (A4)
+Stream A (Electron):
+├─ Semaine 2: Sidecar manager, IPC bridge reel (plus de mock)
+├─ Semaine 3: Multi-window, tray, notifications
 └─ Semaine 4: Integration tests, polish
 
 Stream B (Sync Core):
@@ -385,7 +209,7 @@ Stream C (IPC + Network):
 ### Semaine 5-6: Integration
 
 ```
-├─► Connecter Stream A ↔ Stream C (IPC)
+├─► Connecter Stream A ↔ Stream C (Electron IPC → Unix socket → Rust)
 ├─► Connecter Stream B ↔ Stream C (Event bus)
 ├─► End-to-end tests
 ├─► Performance tuning
@@ -420,54 +244,28 @@ Stream C (IPC + Network):
       "params": { "path": "string", "recursive": "boolean" },
       "returns": "Vec<FileNode>"
     },
-    {
-      "name": "events.subscribe",
-      "params": { "events": "string[]" },
-      "returns": "Subscription"
-    },
+    { "name": "auth.token", "params": {}, "returns": "TokenInfo" },
+    { "name": "events.subscribe", "params": {}, "returns": "Subscription" },
     {
       "name": "events.emit",
       "params": { "event": "string", "data": "string" },
-      "returns": "Result<void, Error>"
-    }
-  ],
-  "events": [
-    {
-      "name": "file.changed",
-      "payload": { "path": "string", "status": "FileState" }
-    },
-    {
-      "name": "sync.started",
-      "payload": { "path": "string" }
-    },
-    {
-      "name": "sync.completed",
-      "payload": { "path": "string", "duration": "number" }
-    },
-    {
-      "name": "conflict.detected",
-      "payload": { "path": "string", "versions": "Version[]" }
+      "returns": "null"
     }
   ]
 }
 ```
 
-### CEF Bridge API (JavaScript)
+### Bridge API (JavaScript via contextBridge)
 
-```javascript
+```typescript
 window.__twake = {
-  // Synchronous methods
-  getFileStatus(path: string): FileStatus,
-  hydrateFile(path: string): Promise<void>,
-  listFiles(path: string, recursive: boolean): FileNode[],
-
-  // Event subscription
-  subscribe(event: string): void,
-  unsubscribe(event: string): void,
-
-  // Event emission
-  emit(event: string, data: object): void
-}
+  getFileStatus(path: string): Promise<FileStatus>,
+  hydrateFile(path: string): Promise<{ success: boolean }>,
+  listFiles(path: string, recursive?: boolean): Promise<FileNode[]>,
+  getToken(): Promise<TokenInfo | null>,
+  startAuth(): Promise<TokenInfo>,
+  on(event: string, callback: (data: any) => void): () => void,
+};
 ```
 
 ### VFS Trait (Rust)
@@ -487,18 +285,18 @@ pub trait VfsBackend: Send + Sync {
 
 ## Points de Synchronisation
 
-### Points de contrôle obligatoires
+### Points de controle obligatoires
 
-1. **Jour 3:** Contrat IPC validé par les 3 développeurs
-2. **Semaine 2:** Stream A peut appeler Stream C via IPC (test de bout en bout)
-3. **Semaine 3:** Stream B peut émettre des événements vers Stream C
-4. **Semaine 5:** Integration complète, tests E2E
+1. **Jour 3:** Contrat IPC valide par les 3 developpeurs
+2. **Semaine 2:** Stream A peut appeler Stream C via Unix socket (test de bout en bout)
+3. **Semaine 3:** Stream B peut emettre des evenements vers Stream C
+4. **Semaine 5:** Integration complete, tests E2E
 
 ### Communication
 
 - **Daily sync:** 15 min pour aligner sur les interfaces
-- **Interface changes:** Discord + mise à jour du contrat IPC
-- **Blockers:** Signaler immédiatement, pas d'attente > 1 jour
+- **Interface changes:** Discord + mise a jour du contrat IPC
+- **Blockers:** Signaler immediatement, pas d'attente > 1 jour
 
 ---
 
@@ -506,11 +304,12 @@ pub trait VfsBackend: Send + Sync {
 
 | Risque                | Impact | Mitigation                                        |
 | --------------------- | ------ | ------------------------------------------------- |
-| CEF build complexe    | High   | Utiliser prébuilt binaries, documenter setup      |
+| Electron perf (RAM)   | Medium | Lazy windows, code caching, monitoring            |
 | IPC contract instable | Medium | Versionner le contrat, backward compatible        |
-| VFS crash (FUSE)      | High   | Isoler dans processus séparé, restart automatique |
-| Conflict resolution   | Medium | Last-write-wins + backup (Phase 1), user choice   |
+| VFS crash (FUSE)      | High   | Isoler dans processus separe, restart automatique |
+| Conflict resolution   | Medium | Last-write-wins + backup (Phase 1)                |
 | OIDC SSO complexity   | Medium | Mock SSO pour dev, vrai SSO pour prod             |
+| Sidecar crash         | Medium | Auto-restart avec backoff                         |
 
 ---
 
@@ -518,28 +317,28 @@ pub trait VfsBackend: Send + Sync {
 
 ### Semaine 1
 
-- [ ] Contrat IPC écrit et validé (Dev C)
-- [ ] Environnement CEF prêt (Dev A)
+- [ ] Contrat IPC ecrit et valide (Dev C)
+- [ ] Shell Electron fonctionnel avec SPA locale (Dev A)
 - [ ] Sync Core models + trait (Dev B)
 
 ### Semaine 2-4
 
-- [ ] CEF Shell fonctionnel (Dev A)
+- [ ] Electron Shell avec auth OIDC et sidecar (Dev A)
 - [ ] Sync Core VFS fonctionnel (Dev B)
 - [ ] IPC Server + Network fonctionnel (Dev C)
 
 ### Semaine 5-6
 
-- [ ] Integration complète
+- [ ] Integration complete
 - [ ] Tests E2E
 - [ ] Performance tuning
-- [ ] MVP prêt
+- [ ] MVP pret
 
 ---
 
 ## Notes
 
-- **Pas d'attente:** Chaque stream peut avancer indépendamment
-- **Interfaces stables:** Une fois le contrat IPC écrit, ne pas le changer sans accord
+- **Pas d'attente:** Chaque stream peut avancer independamment
+- **Interfaces stables:** Une fois le contrat IPC ecrit, ne pas le changer sans accord
 - **Tests:** Chaque stream doit avoir ses tests unitaires
-- **CI/CD:** Mettre en place après Semaine 2 (quand les streams sont stables)
+- **CI/CD:** Mettre en place apres Semaine 2 (quand les streams sont stables)
