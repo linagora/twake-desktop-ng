@@ -340,3 +340,278 @@ impl Filesystem for TwakeFuseFs {
         Ok(ReplyDirectoryPlus { entries })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fuse3::raw::Filesystem;
+    use futures_util::StreamExt;
+    use tempfile::TempDir;
+
+    fn req() -> Request {
+        Request::default()
+    }
+
+    async fn setup() -> (TwakeFuseFs, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let fs = TwakeFuseFs::new(tmp.path().to_path_buf());
+
+        let docs = FileNode::new_ghost("/documents", true);
+        let docs_ino = fs.register_node(docs, ROOT_INODE).await;
+
+        let mut file1 = FileNode::new_ghost("/documents/rapport.pdf", false);
+        file1.size = 5_000_000;
+        fs.register_node(file1, docs_ino).await;
+
+        let mut file2 = FileNode::new_ghost("/documents/notes.txt", false);
+        file2.size = 1024;
+        fs.register_node(file2, docs_ino).await;
+
+        (fs, tmp)
+    }
+
+    // -- register_node: inodes are sequential and parent-child links are built --
+
+    #[tokio::test]
+    async fn register_node_assigns_sequential_inodes() {
+        let tmp = TempDir::new().unwrap();
+        let fs = TwakeFuseFs::new(tmp.path().to_path_buf());
+
+        let n1 = FileNode::new_ghost("/a", true);
+        let n2 = FileNode::new_ghost("/b", true);
+        let ino1 = fs.register_node(n1, ROOT_INODE).await;
+        let ino2 = fs.register_node(n2, ROOT_INODE).await;
+
+        assert_eq!(ino1, 2);
+        assert_eq!(ino2, 3);
+    }
+
+    #[tokio::test]
+    async fn register_node_builds_parent_child_map() {
+        let (fs, _tmp) = setup().await;
+        let children = fs.children.read().await;
+
+        // root has 1 child (documents dir, inode 2)
+        let root_kids = children.get(&ROOT_INODE).unwrap();
+        assert_eq!(root_kids, &vec![2]);
+
+        // documents dir (inode 2) has 2 children
+        let doc_kids = children.get(&2).unwrap();
+        assert_eq!(doc_kids.len(), 2);
+    }
+
+    // -- mark_hydrated: state and size actually change --
+
+    #[tokio::test]
+    async fn mark_hydrated_updates_state_and_size() {
+        let (fs, _tmp) = setup().await;
+        let file_ino = 3; // rapport.pdf
+
+        {
+            let nodes = fs.nodes.read().await;
+            let node = nodes.get(&file_ino).unwrap();
+            assert_eq!(node.state, FileState::Ghost);
+        }
+
+        fs.mark_hydrated(file_ino, 42).await;
+
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&file_ino).unwrap();
+        assert_eq!(node.state, FileState::Hydrated);
+        assert_eq!(node.size, 42);
+    }
+
+    // -- lookup: finds child by name, returns ENOENT for missing --
+
+    #[tokio::test]
+    async fn lookup_finds_existing_child() {
+        let (fs, _tmp) = setup().await;
+        let reply = fs.lookup(req(), 2, OsStr::new("rapport.pdf")).await.unwrap();
+        assert_eq!(reply.attr.ino, 3);
+        assert_eq!(reply.attr.kind, FileType::RegularFile);
+    }
+
+    #[tokio::test]
+    async fn lookup_returns_enoent_for_missing() {
+        let (fs, _tmp) = setup().await;
+        let err = fs.lookup(req(), 2, OsStr::new("nope.txt")).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::ENOENT));
+    }
+
+    #[tokio::test]
+    async fn lookup_returns_enoent_for_wrong_parent() {
+        let (fs, _tmp) = setup().await;
+        // rapport.pdf is under inode 2, not under root
+        let err = fs.lookup(req(), ROOT_INODE, OsStr::new("rapport.pdf")).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::ENOENT));
+    }
+
+    // -- getattr: correct type for root, dirs and files --
+
+    #[tokio::test]
+    async fn getattr_root_is_directory() {
+        let (fs, _tmp) = setup().await;
+        let reply = fs.getattr(req(), ROOT_INODE, None, 0).await.unwrap();
+        assert_eq!(reply.attr.kind, FileType::Directory);
+        assert_eq!(reply.attr.ino, ROOT_INODE);
+    }
+
+    #[tokio::test]
+    async fn getattr_ghost_file_has_zero_size() {
+        let (fs, _tmp) = setup().await;
+        let reply = fs.getattr(req(), 3, None, 0).await.unwrap();
+        assert_eq!(reply.attr.kind, FileType::RegularFile);
+        // ghost files report size 0
+        assert_eq!(reply.attr.size, 0);
+    }
+
+    #[tokio::test]
+    async fn getattr_returns_enoent_for_bad_inode() {
+        let (fs, _tmp) = setup().await;
+        let err = fs.getattr(req(), 999, None, 0).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::ENOENT));
+    }
+
+    // -- readdir: lists . , .. , and real children --
+
+    #[tokio::test]
+    async fn readdir_lists_children_with_dot_entries() {
+        let (fs, _tmp) = setup().await;
+        let reply = fs.readdir(req(), 2, 0, 0).await.unwrap();
+
+        let entries: Vec<_> = reply.entries
+            .collect::<Vec<_>>().await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        let names: Vec<_> = entries.iter().map(|e| e.name.to_str().unwrap().to_string()).collect();
+        assert!(names.contains(&".".to_string()));
+        assert!(names.contains(&"..".to_string()));
+        assert!(names.contains(&"rapport.pdf".to_string()));
+        assert!(names.contains(&"notes.txt".to_string()));
+        assert_eq!(entries.len(), 4); // . + .. + 2 files
+    }
+
+    #[tokio::test]
+    async fn readdir_offset_skips_entries() {
+        let (fs, _tmp) = setup().await;
+        let reply = fs.readdir(req(), 2, 0, 2).await.unwrap();
+
+        let entries: Vec<_> = reply.entries
+            .collect::<Vec<_>>().await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // offset=2 skips . and .., leaves the 2 real files
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn readdir_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let fs = TwakeFuseFs::new(tmp.path().to_path_buf());
+        let dir = FileNode::new_ghost("/empty", true);
+        let dir_ino = fs.register_node(dir, ROOT_INODE).await;
+
+        let reply = fs.readdir(req(), dir_ino, 0, 0).await.unwrap();
+        let entries: Vec<_> = reply.entries.collect::<Vec<_>>().await;
+        // only . and ..
+        assert_eq!(entries.len(), 2);
+    }
+
+    // -- open + read: hydration creates a cache file and read returns its content --
+
+    #[tokio::test]
+    async fn open_hydrates_ghost_and_read_returns_content() {
+        let (fs, _tmp) = setup().await;
+        let file_ino = 4; // notes.txt
+
+        // Before open: state is ghost
+        {
+            let nodes = fs.nodes.read().await;
+            assert_eq!(nodes.get(&file_ino).unwrap().state, FileState::Ghost);
+        }
+
+        // open() triggers hydration
+        fs.open(req(), file_ino, 0).await.unwrap();
+
+        // After open: state is hydrated
+        {
+            let nodes = fs.nodes.read().await;
+            assert_eq!(nodes.get(&file_ino).unwrap().state, FileState::Hydrated);
+        }
+
+        // read() returns actual content
+        let reply = fs.read(req(), file_ino, 0, 0, 4096).await.unwrap();
+        let content = String::from_utf8(reply.data.to_vec()).unwrap();
+        assert!(content.starts_with("[twake] placeholder content for"));
+        assert!(!content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn open_already_hydrated_does_not_rehydrate() {
+        let (fs, tmp) = setup().await;
+        let file_ino = 3; // rapport.pdf
+
+        // Hydrate once
+        fs.open(req(), file_ino, 0).await.unwrap();
+        let size_after_first = {
+            let nodes = fs.nodes.read().await;
+            nodes.get(&file_ino).unwrap().size
+        };
+
+        // Manually overwrite cache to detect if open re-hydrates
+        let node_id = {
+            let nodes = fs.nodes.read().await;
+            nodes.get(&file_ino).unwrap().id
+        };
+        let cache_path = tmp.path().join(node_id.to_string());
+        tokio::fs::write(&cache_path, b"custom data").await.unwrap();
+
+        // Second open should not overwrite since state is already Hydrated
+        fs.open(req(), file_ino, 0).await.unwrap();
+
+        let data = tokio::fs::read(&cache_path).await.unwrap();
+        assert_eq!(data, b"custom data");
+
+        let nodes = fs.nodes.read().await;
+        assert_eq!(nodes.get(&file_ino).unwrap().size, size_after_first);
+    }
+
+    #[tokio::test]
+    async fn read_with_offset() {
+        let (fs, _tmp) = setup().await;
+        let file_ino = 4; // notes.txt
+
+        fs.open(req(), file_ino, 0).await.unwrap();
+
+        // Read full content first
+        let full = fs.read(req(), file_ino, 0, 0, 4096).await.unwrap();
+        let full_bytes = full.data.to_vec();
+        assert!(full_bytes.len() > 10);
+
+        // Read with offset=7, size=5
+        let partial = fs.read(req(), file_ino, 0, 7, 5).await.unwrap();
+        assert_eq!(partial.data.to_vec(), &full_bytes[7..12]);
+    }
+
+    #[tokio::test]
+    async fn read_past_eof_returns_empty() {
+        let (fs, _tmp) = setup().await;
+        let file_ino = 4;
+        fs.open(req(), file_ino, 0).await.unwrap();
+
+        let reply = fs.read(req(), file_ino, 0, 99999, 4096).await.unwrap();
+        assert!(reply.data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn read_ghost_returns_eio() {
+        let (fs, _tmp) = setup().await;
+        // Don't open — file stays ghost
+        let err = fs.read(req(), 3, 0, 0, 4096).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::EIO));
+    }
+}
