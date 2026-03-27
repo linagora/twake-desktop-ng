@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use clap::Parser;
 use tracing::{info, warn};
 
@@ -7,6 +8,7 @@ use twake_sync::cozy::client::{CozyClient, ROOT_DIR_ID};
 use twake_sync::fuse::fuse_backend::{TwakeFuseFs, ROOT_INODE};
 use twake_sync::fuse::mount_fuse;
 use twake_sync::models::FileNode;
+use twake_sync::services::upload_queue::UploadQueue;
 
 #[derive(Parser, Debug)]
 #[command(name = "twake-vfs", about = "Twake FUSE virtual filesystem")]
@@ -62,7 +64,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Cache dir: {:?}", cache_dir);
 
     let cozy = CozyClient::new(&args.url, &args.token, args.cookie);
-    let fs = TwakeFuseFs::new(cache_dir, cozy.clone());
+    
+    info!("Starting UploadQueue (simple mode, no DB persistence)");
+    let upload_queue = Arc::new(UploadQueue::new_simple(cozy.clone()));
+    
+    let fs = TwakeFuseFs::new(cache_dir, cozy.clone(), upload_queue);
 
     // Populate the FUSE tree from Cozy
     info!("Fetching file tree from Cozy...");

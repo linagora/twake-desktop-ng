@@ -7,6 +7,7 @@ pub enum FileState {
     Hydrated,
     Modified,
     Syncing,
+    Synced,
     Conflict,
     Error,
 }
@@ -18,6 +19,7 @@ impl std::fmt::Display for FileState {
             FileState::Hydrated => write!(f, "hydrated"),
             FileState::Modified => write!(f, "modified"),
             FileState::Syncing => write!(f, "syncing"),
+            FileState::Synced => write!(f, "synced"),
             FileState::Conflict => write!(f, "conflict"),
             FileState::Error => write!(f, "error"),
         }
@@ -31,6 +33,7 @@ impl From<&str> for FileState {
             "hydrated" => FileState::Hydrated,
             "modified" => FileState::Modified,
             "syncing" => FileState::Syncing,
+            "synced" => FileState::Synced,
             "conflict" => FileState::Conflict,
             "error" => FileState::Error,
             _ => FileState::Error,

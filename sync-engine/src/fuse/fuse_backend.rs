@@ -10,10 +10,14 @@ use fuse3::raw::prelude::*;
 use fuse3::Result as FuseResult;
 use futures_util::stream;
 use tokio::sync::RwLock;
+use tokio::io::{AsyncWriteExt, AsyncSeekExt};
 use tracing::{info, warn};
 
 use crate::cozy::CozyClient;
 use crate::models::{FileNode, FileState};
+use crate::services::upload_queue::{UploadOp, UploadQueue};
+
+use uuid::Uuid;
 
 const TTL: Duration = Duration::from_secs(1);
 pub const ROOT_INODE: u64 = 1;
@@ -25,10 +29,11 @@ pub struct TwakeFuseFs {
     next_inode: Arc<RwLock<u64>>,
     cache_dir: PathBuf,
     cozy: Option<CozyClient>,
+    upload_queue: Option<Arc<UploadQueue>>,
 }
 
 impl TwakeFuseFs {
-    pub fn new(cache_dir: PathBuf, cozy: CozyClient) -> Self {
+    pub fn new(cache_dir: PathBuf, cozy: CozyClient, upload_queue: Arc<UploadQueue>) -> Self {
         Self {
             nodes: Arc::new(RwLock::new(HashMap::new())),
             path_to_inode: Arc::new(RwLock::new(HashMap::new())),
@@ -36,6 +41,7 @@ impl TwakeFuseFs {
             next_inode: Arc::new(RwLock::new(ROOT_INODE + 1)),
             cache_dir,
             cozy: Some(cozy),
+            upload_queue: Some(upload_queue),
         }
     }
 
@@ -48,6 +54,7 @@ impl TwakeFuseFs {
             next_inode: Arc::new(RwLock::new(ROOT_INODE + 1)),
             cache_dir,
             cozy: None,
+            upload_queue: None,
         }
     }
 
@@ -69,6 +76,16 @@ impl TwakeFuseFs {
             node.state = FileState::Hydrated;
             node.size = size;
         }
+    }
+
+    /// Get node inode by path.
+    pub async fn get_node_by_path(&self, path: &str) -> Option<u64> {
+        self.path_to_inode.read().await.get(path).copied()
+    }
+
+    /// Get mutable access to nodes map.
+    pub async fn nodes_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, HashMap<u64, FileNode>> {
+        self.nodes.write().await
     }
 
     /// Get the cache file path for a given inode.
@@ -367,6 +384,431 @@ impl Filesystem for TwakeFuseFs {
         let entries = stream::iter(skipped);
         Ok(ReplyDirectoryPlus { entries })
     }
+
+    async fn create(
+        &self,
+        _req: Request,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        flags: u32,
+    ) -> FuseResult<ReplyCreated> {
+        let (path, parent_uuid) = {
+            let nodes = self.nodes.read().await;
+            let parent_node = nodes.get(&parent).ok_or(libc::ENOENT)?;
+            let parent_path = &parent_node.path;
+            let name_str = name.to_str().ok_or(libc::EINVAL)?;
+            let path = format!("{}/{}", parent_path.trim_end_matches('/'), name_str);
+            (path, parent_node.id)
+        };
+
+        let node = FileNode {
+            id: Uuid::new_v4(),
+            remote_id: None,
+            path,
+            state: FileState::Modified,
+            size: 0,
+            modified: chrono::Utc::now().to_rfc3339(),
+            is_dir: false,
+            parent_id: Some(parent_uuid),
+        };
+
+        let inode = self.register_node(node, parent).await;
+        let attr = {
+            let nodes = self.nodes.read().await;
+            let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+            Self::make_attr(inode, node)
+        };
+
+        info!("Created file: inode={}, path={}", inode, name.to_string_lossy());
+        Ok(ReplyCreated {
+            ttl: TTL,
+            attr,
+            generation: 0,
+            fh: inode,
+            flags,
+        })
+    }
+
+    async fn write(
+        &self,
+        _req: Request,
+        inode: u64,
+        fh: u64,
+        offset: u64,
+        data: &[u8],
+        write_flags: u32,
+        flags: u32,
+    ) -> FuseResult<ReplyWrite> {
+        let cache_path = {
+            let nodes = self.nodes.read().await;
+            let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+            if node.is_dir {
+                return Err(libc::EISDIR.into());
+            }
+            self.cache_path(node)
+        };
+
+        tokio::fs::create_dir_all(&self.cache_dir).await.map_err(|_| libc::EIO)?;
+
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&cache_path)
+            .await
+            .map_err(|_| libc::EIO)?;
+
+        file.seek(std::io::SeekFrom::Start(offset)).await.map_err(|_| libc::EIO)?;
+        file.write_all(data).await.map_err(|_| libc::EIO)?;
+        file.sync_all().await.map_err(|_| libc::EIO)?;
+
+        let mut nodes = self.nodes.write().await;
+        if let Some(node) = nodes.get_mut(&inode) {
+            node.state = FileState::Modified;
+            node.size = tokio::fs::metadata(&cache_path).await.map(|m| m.len()).unwrap_or(0);
+            node.modified = chrono::Utc::now().to_rfc3339();
+        }
+
+        info!("Write: inode={}, offset={}, bytes={}", inode, offset, data.len());
+        Ok(ReplyWrite { written: data.len() as u32 })
+    }
+
+    async fn flush(
+        &self,
+        _req: Request,
+        inode: u64,
+        fh: u64,
+        lock_owner: u64,
+    ) -> FuseResult<()> {
+        if inode == ROOT_INODE {
+            return Ok(());
+        }
+
+        let (content, path_str, remote_id, content_len) = {
+            let nodes = self.nodes.read().await;
+            let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+            let cache_path = self.cache_path(node);
+            let path_str = node.path.clone();
+            let remote_id = node.remote_id.clone();
+            
+            let content = tokio::fs::read(&cache_path).await.map_err(|_| libc::EIO)?;
+            let content_len = content.len();
+            (content, path_str, remote_id, content_len)
+        };
+
+        if let Some(queue) = &self.upload_queue {
+            let op = match remote_id {
+                Some(rid) => UploadOp::Update {
+                    path: PathBuf::from(path_str),
+                    content,
+                    remote_id: rid,
+                    rev: None,
+                },
+                None => {
+                    let parent_remote_id = {
+                        let nodes = self.nodes.read().await;
+                        let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+                        
+                        if let Some(parent_uuid) = node.parent_id {
+                            let parent_inode = self.path_to_inode.read().await.iter()
+                                .find(|(_, ino)| {
+                                    nodes.get(*ino).map_or(false, |n| n.id == parent_uuid)
+                                })
+                                .map(|(_, ino)| *ino);
+                            
+                            if let Some(parent_ino) = parent_inode {
+                                nodes.get(&parent_ino)
+                                    .and_then(|p| p.remote_id.clone())
+                                    .unwrap_or_else(|| "io.cozy.files.root-dir".to_string())
+                            } else {
+                                "io.cozy.files.root-dir".to_string()
+                            }
+                        } else {
+                            "io.cozy.files.root-dir".to_string()
+                        }
+                    };
+                    
+                    UploadOp::Create {
+                        path: PathBuf::from(path_str),
+                        content,
+                        parent_remote_id,
+                    }
+                }
+            };
+
+            if let Err(e) = queue.queue(op).await {
+                warn!("Failed to queue upload: {:?}", e);
+            }
+        }
+
+        info!("Flush queued upload: inode={}, bytes={}", inode, content_len);
+        Ok(())
+    }
+
+    async fn fsync(
+        &self,
+        _req: Request,
+        inode: u64,
+        fh: u64,
+        datasync: bool,
+    ) -> FuseResult<()> {
+        info!("Fsync: inode={}, datasync={}", inode, datasync);
+        Ok(())
+    }
+
+    async fn mkdir(
+        &self,
+        _req: Request,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+    ) -> FuseResult<ReplyEntry> {
+        let (path, parent_uuid) = {
+            let nodes = self.nodes.read().await;
+            let parent_node = nodes.get(&parent).ok_or(libc::ENOENT)?;
+            let parent_path = &parent_node.path;
+            let name_str = name.to_str().ok_or(libc::EINVAL)?;
+            let path = format!("{}/{}", parent_path.trim_end_matches('/'), name_str);
+            (path, parent_node.id)
+        };
+
+        let node = FileNode {
+            id: Uuid::new_v4(),
+            remote_id: None,
+            path: path.clone(),
+            state: FileState::Modified,
+            size: 0,
+            modified: chrono::Utc::now().to_rfc3339(),
+            is_dir: true,
+            parent_id: Some(parent_uuid),
+        };
+
+        let inode = self.register_node(node, parent).await;
+        let attr = {
+            let nodes = self.nodes.read().await;
+            let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+            Self::make_attr(inode, node)
+        };
+
+        if let Some(queue) = &self.upload_queue {
+            let parent_remote_id = {
+                let nodes = self.nodes.read().await;
+                let parent_node = nodes.get(&parent).ok_or(libc::ENOENT)?;
+                parent_node.remote_id.clone().unwrap_or_else(|| "io.cozy.files.root-dir".to_string())
+            };
+
+            let op = UploadOp::Mkdir {
+                path: PathBuf::from(&path),
+                parent_remote_id,
+                name: name.to_str().unwrap_or_default().to_string(),
+            };
+            if let Err(e) = queue.queue(op).await {
+                warn!("Failed to queue mkdir: {:?}", e);
+            }
+        }
+
+        info!("Created directory: inode={}, path={}", inode, path);
+        Ok(ReplyEntry { ttl: TTL, attr, generation: 0 })
+    }
+
+    async fn rmdir(
+        &self,
+        _req: Request,
+        parent: u64,
+        name: &OsStr,
+    ) -> FuseResult<()> {
+        let (inode, children_empty) = {
+            let nodes = self.nodes.read().await;
+            let parent_node = nodes.get(&parent).ok_or(libc::ENOENT)?;
+            let parent_path = &parent_node.path;
+            let name_str = name.to_str().ok_or(libc::EINVAL)?;
+            let path = format!("{}/{}", parent_path.trim_end_matches('/'), name_str);
+            
+            let inode = self.path_to_inode.read().await.get(&path).copied().ok_or(libc::ENOENT)?;
+            let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+            
+            if !node.is_dir {
+                return Err(libc::ENOTDIR.into());
+            }
+
+            let children_empty = self.children.read().await.get(&inode).map(|c| c.is_empty()).unwrap_or(true);
+            (inode, children_empty)
+        };
+
+        if !children_empty {
+            return Err(libc::ENOTEMPTY.into());
+        }
+
+        let remote_id_and_path = {
+            let nodes = self.nodes.read().await;
+            let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+            (node.remote_id.clone(), PathBuf::from(&node.path))
+        };
+
+        let mut nodes = self.nodes.write().await;
+        nodes.remove(&inode);
+        
+        self.path_to_inode.write().await.retain(|_, v| *v != inode);
+        self.children.write().await.remove(&inode);
+
+        if let Some(siblings) = self.children.write().await.get_mut(&parent) {
+            siblings.retain(|&i| i != inode);
+        }
+
+        if let Some(queue) = &self.upload_queue {
+            if let (Some(rid), path_buf) = remote_id_and_path {
+                let op = UploadOp::Delete {
+                    path: path_buf,
+                    remote_id: rid,
+                    rev: None,
+                };
+                if let Err(e) = queue.queue(op).await {
+                    warn!("Failed to queue rmdir delete: {:?}", e);
+                }
+            }
+        }
+
+        info!("Removed directory: inode={}", inode);
+        Ok(())
+    }
+
+    async fn unlink(
+        &self,
+        _req: Request,
+        parent: u64,
+        name: &OsStr,
+    ) -> FuseResult<()> {
+        let (inode, cache_path) = {
+            let nodes = self.nodes.read().await;
+            let parent_node = nodes.get(&parent).ok_or(libc::ENOENT)?;
+            let parent_path = &parent_node.path;
+            let name_str = name.to_str().ok_or(libc::EINVAL)?;
+            let path = format!("{}/{}", parent_path.trim_end_matches('/'), name_str);
+            
+            let inode = self.path_to_inode.read().await.get(&path).copied().ok_or(libc::ENOENT)?;
+            let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+            
+            if node.is_dir {
+                return Err(libc::EISDIR.into());
+            }
+
+            (inode, self.cache_path(node))
+        };
+
+        if cache_path.exists() {
+            tokio::fs::remove_file(&cache_path).await.map_err(|_| libc::EIO)?;
+        }
+
+        let (remote_id, path_buf) = {
+            let nodes = self.nodes.read().await;
+            let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+            (node.remote_id.clone(), PathBuf::from(&node.path))
+        };
+
+        if let Some(queue) = &self.upload_queue {
+            if let Some(rid) = remote_id {
+                let op = UploadOp::Delete {
+                    path: path_buf,
+                    remote_id: rid,
+                    rev: None,
+                };
+                if let Err(e) = queue.queue(op).await {
+                    warn!("Failed to queue delete: {:?}", e);
+                }
+            }
+        }
+
+        let mut nodes = self.nodes.write().await;
+        nodes.remove(&inode);
+        
+        self.path_to_inode.write().await.retain(|_, v| *v != inode);
+        
+        if let Some(siblings) = self.children.write().await.get_mut(&parent) {
+            siblings.retain(|&i| i != inode);
+        }
+
+        info!("Unlinked file: inode={}", inode);
+        Ok(())
+    }
+
+    async fn rename(
+        &self,
+        _req: Request,
+        parent: u64,
+        name: &OsStr,
+        newparent: u64,
+        newname: &OsStr,
+    ) -> FuseResult<()> {
+        let (inode, old_path) = {
+            let nodes = self.nodes.read().await;
+            let parent_node = nodes.get(&parent).ok_or(libc::ENOENT)?;
+            let parent_path = &parent_node.path;
+            let name_str = name.to_str().ok_or(libc::EINVAL)?;
+            let path = format!("{}/{}", parent_path.trim_end_matches('/'), name_str);
+            
+            let inode = self.path_to_inode.read().await.get(&path).copied().ok_or(libc::ENOENT)?;
+            (inode, path)
+        };
+
+        let new_path = {
+            let nodes = self.nodes.read().await;
+            let new_parent_node = nodes.get(&newparent).ok_or(libc::ENOENT)?;
+            let new_parent_path = &new_parent_node.path;
+            let new_name_str = newname.to_str().ok_or(libc::EINVAL)?;
+            format!("{}/{}", new_parent_path.trim_end_matches('/'), new_name_str)
+        };
+
+        {
+            let mut nodes = self.nodes.write().await;
+            if let Some(node) = nodes.get_mut(&inode) {
+                node.path = new_path.clone();
+            }
+        }
+
+        {
+            let mut path_to_inode = self.path_to_inode.write().await;
+            path_to_inode.remove(&old_path);
+            path_to_inode.insert(new_path.clone(), inode);
+        }
+
+        {
+            let mut children = self.children.write().await;
+            if let Some(siblings) = children.get_mut(&parent) {
+                siblings.retain(|&i| i != inode);
+            }
+            children.entry(newparent).or_default().push(inode);
+        }
+
+        if let Some(queue) = &self.upload_queue {
+            let (remote_id, new_parent_remote_id, new_name_str) = {
+                let nodes = self.nodes.read().await;
+                let node = nodes.get(&inode).ok_or(libc::ENOENT)?;
+                let new_parent_node = nodes.get(&newparent).ok_or(libc::ENOENT)?;
+                (
+                    node.remote_id.clone(),
+                    new_parent_node.remote_id.clone(),
+                    newname.to_str().map(|s| s.to_string()),
+                )
+            };
+
+            if let (Some(rid), Some(new_parent_rid)) = (remote_id, new_parent_remote_id) {
+                let op = UploadOp::Move {
+                    path: PathBuf::from(&new_path),
+                    remote_id: rid,
+                    new_parent_id: new_parent_rid,
+                    new_name: new_name_str,
+                    rev: None,
+                };
+                if let Err(e) = queue.queue(op).await {
+                    warn!("Failed to queue move: {:?}", e);
+                }
+            }
+        }
+
+        info!("Renamed: {} -> {}", old_path, new_path);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -641,5 +1083,288 @@ mod tests {
         // Don't open — file stays ghost
         let err = fs.read(req(), 3, 0, 0, 4096).await.unwrap_err();
         assert_eq!(err, fuse3::Errno::from(libc::EIO));
+    }
+
+    // -- create: creates new file with Modified state --
+
+    #[tokio::test]
+    async fn create_new_file_assigns_inode_and_sets_modified_state() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2; // documents directory
+
+        let reply = fs.create(req(), parent_ino, OsStr::new("newfile.txt"), 0o644, 0).await.unwrap();
+        assert!(reply.fh > 0);
+
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&reply.fh).unwrap();
+        assert_eq!(node.state, FileState::Modified);
+        assert_eq!(node.path, "/documents/newfile.txt");
+        assert!(!node.is_dir);
+    }
+
+    #[tokio::test]
+    async fn create_file_in_nonexistent_parent_returns_enoent() {
+        let (fs, _tmp) = setup().await;
+
+        let err = fs.create(req(), 999, OsStr::new("file.txt"), 0o644, 0).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::ENOENT));
+    }
+
+    // -- write: writes data to cache file and updates node --
+
+    #[tokio::test]
+    async fn write_updates_cache_and_node_state() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        // Create file first
+        let create_reply = fs.create(req(), parent_ino, OsStr::new("writetest.txt"), 0o644, 0).await.unwrap();
+        let file_ino = create_reply.fh;
+
+        // Write data
+        let data = b"Hello, Twake!";
+        let write_reply = fs.write(req(), file_ino, 0, 0, data, 0, 0).await.unwrap();
+        assert_eq!(write_reply.written, data.len() as u32);
+
+        // Verify node state
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&file_ino).unwrap();
+        assert_eq!(node.state, FileState::Modified);
+        assert_eq!(node.size, data.len() as u64);
+    }
+
+    #[tokio::test]
+    async fn write_to_directory_returns_eisdir() {
+        let (fs, _tmp) = setup().await;
+
+        let err = fs.write(req(), 2, 0, 0, b"data", 0, 0).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::EISDIR));
+    }
+
+    #[tokio::test]
+    async fn write_with_offset() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        let create_reply = fs.create(req(), parent_ino, OsStr::new("offset.txt"), 0o644, 0).await.unwrap();
+        let file_ino = create_reply.fh;
+
+        // Write at offset 0
+        fs.write(req(), file_ino, 0, 0, b"Hello", 0, 0).await.unwrap();
+        // Write at offset 5
+        fs.write(req(), file_ino, 0, 5, b" World", 0, 0).await.unwrap();
+
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&file_ino).unwrap();
+        assert_eq!(node.size, 11); // "Hello World"
+    }
+
+    // -- flush: called after write operations --
+
+    #[tokio::test]
+    async fn flush_succeeds_for_modified_file() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        let create_reply = fs.create(req(), parent_ino, OsStr::new("flushtest.txt"), 0o644, 0).await.unwrap();
+        let file_ino = create_reply.fh;
+
+        fs.write(req(), file_ino, 0, 0, b"test data", 0, 0).await.unwrap();
+        let flush_result = fs.flush(req(), file_ino, 0, 0).await;
+        
+        assert!(flush_result.is_ok());
+    }
+
+    // -- fsync: sync operation --
+
+    #[tokio::test]
+    async fn fsync_succeeds() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        let create_reply = fs.create(req(), parent_ino, OsStr::new("synctest.txt"), 0o644, 0).await.unwrap();
+        let file_ino = create_reply.fh;
+
+        let result = fs.fsync(req(), file_ino, 0, false).await;
+        assert!(result.is_ok());
+    }
+
+    // -- mkdir: creates directory --
+
+    #[tokio::test]
+    async fn mkdir_creates_directory_with_modified_state() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2; // documents
+
+        let reply = fs.mkdir(req(), parent_ino, OsStr::new("newdir"), 0o755, 0).await.unwrap();
+        assert!(reply.ttl.as_secs() > 0);
+
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&reply.attr.ino).unwrap();
+        assert!(node.is_dir);
+        assert_eq!(node.state, FileState::Modified);
+        assert_eq!(node.path, "/documents/newdir");
+    }
+
+    #[tokio::test]
+    async fn mkdir_in_root_creates_directory() {
+        let tmp = TempDir::new().unwrap();
+        let fs = TwakeFuseFs::new_without_cozy(tmp.path().to_path_buf());
+        
+        let root = FileNode::new_ghost("/", true);
+        let root_ino = fs.register_node(root, ROOT_INODE).await;
+
+        let reply = fs.mkdir(req(), root_ino, OsStr::new("rootdir"), 0o755, 0).await.unwrap();
+        
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&reply.attr.ino).unwrap();
+        assert!(node.is_dir);
+        assert_eq!(node.path, "/rootdir");
+    }
+
+    // -- rmdir: removes empty directory --
+
+    #[tokio::test]
+    async fn rmdir_removes_empty_directory() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        // Create directory
+        let mkdir_reply = fs.mkdir(req(), parent_ino, OsStr::new("toberemoved"), 0o755, 0).await.unwrap();
+        let dir_ino = mkdir_reply.attr.ino;
+
+        // Remove it
+        let rmdir_result = fs.rmdir(req(), parent_ino, OsStr::new("toberemoved")).await;
+        assert!(rmdir_result.is_ok());
+
+        // Verify it's gone
+        let nodes = fs.nodes.read().await;
+        assert!(!nodes.contains_key(&dir_ino));
+    }
+
+    #[tokio::test]
+    async fn rmdir_nonempty_returns_enotempty() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        // Create directory
+        let mkdir_reply = fs.mkdir(req(), parent_ino, OsStr::new("nonempty"), 0o755, 0).await.unwrap();
+        let dir_ino = mkdir_reply.attr.ino;
+
+        // Add a file to it
+        fs.create(req(), dir_ino, OsStr::new("file.txt"), 0o644, 0).await.unwrap();
+
+        // Try to remove - should fail
+        let err = fs.rmdir(req(), parent_ino, OsStr::new("nonempty")).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::ENOTEMPTY));
+    }
+
+    #[tokio::test]
+    async fn rmdir_on_file_returns_enotdir() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        let err = fs.rmdir(req(), parent_ino, OsStr::new("rapport.pdf")).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::ENOTDIR));
+    }
+
+    // -- unlink: removes file --
+
+    #[tokio::test]
+    async fn unlink_removes_file() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        // Create file
+        let create_reply = fs.create(req(), parent_ino, OsStr::new("todelete.txt"), 0o644, 0).await.unwrap();
+        let file_ino = create_reply.fh;
+
+        // Unlink it
+        let unlink_result = fs.unlink(req(), parent_ino, OsStr::new("todelete.txt")).await;
+        assert!(unlink_result.is_ok());
+
+        // Verify it's gone
+        let nodes = fs.nodes.read().await;
+        assert!(!nodes.contains_key(&file_ino));
+    }
+
+    #[tokio::test]
+    async fn unlink_on_directory_returns_eisdir() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        let mkdir_reply = fs.mkdir(req(), parent_ino, OsStr::new("subdir"), 0o755, 0).await.unwrap();
+        
+        let err = fs.unlink(req(), parent_ino, OsStr::new("subdir")).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::EISDIR));
+    }
+
+    // -- rename: renames/moves file or directory --
+
+    #[tokio::test]
+    async fn rename_file_same_directory() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        // Create file
+        let create_reply = fs.create(req(), parent_ino, OsStr::new("oldname.txt"), 0o644, 0).await.unwrap();
+        let file_ino = create_reply.fh;
+
+        // Rename
+        let rename_result = fs.rename(req(), parent_ino, OsStr::new("oldname.txt"), parent_ino, OsStr::new("newname.txt")).await;
+        assert!(rename_result.is_ok());
+
+        // Verify path updated
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&file_ino).unwrap();
+        assert_eq!(node.path, "/documents/newname.txt");
+
+        // Verify old path is gone from path_to_inode
+        let path_map = fs.path_to_inode.read().await;
+        assert!(!path_map.contains_key("/documents/oldname.txt"));
+        assert!(path_map.contains_key("/documents/newname.txt"));
+    }
+
+    #[tokio::test]
+    async fn rename_file_different_directory() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        let mkdir_reply = fs.mkdir(req(), parent_ino, OsStr::new("newparent"), 0o755, 0).await.unwrap();
+        let new_parent_ino = mkdir_reply.attr.ino;
+
+        let create_reply = fs.create(req(), parent_ino, OsStr::new("moveme.txt"), 0o644, 0).await.unwrap();
+        let file_ino = create_reply.fh;
+
+        let rename_result = fs.rename(req(), parent_ino, OsStr::new("moveme.txt"), new_parent_ino, OsStr::new("moveme.txt")).await;
+        assert!(rename_result.is_ok());
+
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&file_ino).unwrap();
+        assert_eq!(node.path, "/documents/newparent/moveme.txt");
+    }
+
+    #[tokio::test]
+    async fn rename_directory() {
+        let (fs, _tmp) = setup().await;
+        let parent_ino = 2;
+
+        let mkdir_reply = fs.mkdir(req(), parent_ino, OsStr::new("olddir"), 0o755, 0).await.unwrap();
+        let dir_ino = mkdir_reply.attr.ino;
+
+        let rename_result = fs.rename(req(), parent_ino, OsStr::new("olddir"), parent_ino, OsStr::new("newdir")).await;
+        assert!(rename_result.is_ok());
+
+        let nodes = fs.nodes.read().await;
+        let node = nodes.get(&dir_ino).unwrap();
+        assert_eq!(node.path, "/documents/newdir");
+    }
+
+    #[tokio::test]
+    async fn rename_nonexistent_source_returns_enoent() {
+        let (fs, _tmp) = setup().await;
+
+        let err = fs.rename(req(), ROOT_INODE, OsStr::new("nonexistent"), ROOT_INODE, OsStr::new("newname")).await.unwrap_err();
+        assert_eq!(err, fuse3::Errno::from(libc::ENOENT));
     }
 }

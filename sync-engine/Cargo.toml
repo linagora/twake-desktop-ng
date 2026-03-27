@@ -61,12 +61,15 @@ notify = "6.1"
 
 # Date/time
 time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 # HTTP client for hydration
 reqwest = { version = "0.11", features = ["json"] }
 
 # Path manipulation
 path-absolutize = "3.1"
+
+urlencoding = "2.1"
 
 [dev-dependencies]
 tempfile = "3.9"
