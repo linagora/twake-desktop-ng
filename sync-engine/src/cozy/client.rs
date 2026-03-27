@@ -164,7 +164,7 @@ impl CozyClient {
         content: &[u8],
     ) -> Result<CozyFileResult, CozyError> {
         let url = format!(
-            "{}/files/{}?Name={}",
+            "{}/files/{}?Name={}&Type=file",
             self.base_url,
             dir_id,
             urlencoding::encode(name)
@@ -446,7 +446,9 @@ struct FileData {
 
 #[derive(Deserialize)]
 struct FileAttributes {
+    #[serde(default)]
     path: String,
+    #[serde(default)]
     updated_at: String,
 }
 

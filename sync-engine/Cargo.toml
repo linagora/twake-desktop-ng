@@ -71,5 +71,8 @@ path-absolutize = "3.1"
 
 urlencoding = "2.1"
 
+# WebSocket for Cozy realtime
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+
 [dev-dependencies]
 tempfile = "3.9"

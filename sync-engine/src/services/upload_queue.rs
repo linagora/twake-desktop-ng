@@ -5,7 +5,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use crate::cozy::client::{CozyClient, CozyFileResult, CozyFolderResult};
-use crate::fuse::fuse_backend::TwakeFuseFs;
+use crate::fuse::fuse_backend::{TwakeFuseFs, SharedVfsState};
 use crate::models::FileState;
 use crate::services::deconfliction::DeconflictionService;
 
@@ -81,7 +81,24 @@ impl UploadQueue {
         let deconfliction = DeconflictionService::new();
 
         let worker_handle = tokio::spawn(async move {
-            Self::worker_loop_simple(receiver, cozy, deconfliction).await;
+            Self::worker_loop_simple(receiver, cozy, deconfliction, None).await;
+        });
+
+        Self {
+            sender,
+            worker_handle: Arc::new(RwLock::new(Some(worker_handle))),
+        }
+    }
+
+    pub fn new_with_shared_state(
+        cozy: CozyClient,
+        shared: SharedVfsState,
+    ) -> Self {
+        let (sender, receiver) = mpsc::channel::<UploadOp>(100);
+        let deconfliction = DeconflictionService::new();
+
+        let worker_handle = tokio::spawn(async move {
+            Self::worker_loop_simple(receiver, cozy, deconfliction, Some(shared)).await;
         });
 
         Self {
@@ -152,6 +169,7 @@ impl UploadQueue {
         mut receiver: mpsc::Receiver<UploadOp>,
         cozy: CozyClient,
         deconfliction: DeconflictionService,
+        shared: Option<SharedVfsState>,
     ) {
         info!("UploadQueue worker started (simple mode)");
 
@@ -162,7 +180,7 @@ impl UploadQueue {
                     content,
                     parent_remote_id,
                 } => {
-                    Self::handle_create_simple(&cozy, &deconfliction, path, content, parent_remote_id).await
+                    Self::handle_create_simple(&cozy, &deconfliction, shared.as_ref(), path, content, parent_remote_id).await
                 }
                 UploadOp::Update {
                     path,
@@ -208,6 +226,7 @@ impl UploadQueue {
     async fn handle_create_simple(
         cozy: &CozyClient,
         deconfliction: &DeconflictionService,
+        shared: Option<&SharedVfsState>,
         path: PathBuf,
         content: Vec<u8>,
         parent_remote_id: String,
@@ -223,6 +242,19 @@ impl UploadQueue {
         match cozy.upload(&parent_remote_id, filename, &content).await {
             Ok(result) => {
                 info!("Upload successful: {} -> {}", path_str, result.id);
+
+                // Immediately update the local node with the remote_id
+                if let Some(shared) = shared {
+                    if let Some(&inode) = shared.path_to_inode.read().await.get(path_str) {
+                        let mut nodes = shared.nodes.write().await;
+                        if let Some(node) = nodes.get_mut(&inode) {
+                            node.remote_id = Some(result.id.clone());
+                            node.state = FileState::Synced;
+                            info!("Linked {} to remote id {}", path_str, result.id);
+                        }
+                    }
+                }
+
                 Ok(())
             }
             Err(e) => {
