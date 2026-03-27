@@ -79,7 +79,7 @@ impl TwakeFuseFs {
     fn make_attr(inode: u64, node: &FileNode) -> FileAttr {
         let kind = if node.is_dir { FileType::Directory } else { FileType::RegularFile };
         let perm = if node.is_dir { 0o755 } else { 0o644 };
-        let size = if node.state == FileState::Ghost { 0 } else { node.size };
+        let size = node.size; // Show actual size even for ghost files (better UX)
 
         FileAttr {
             ino: inode,
@@ -485,12 +485,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn getattr_ghost_file_has_zero_size() {
+    async fn getattr_ghost_file_shows_actual_size() {
         let (fs, _tmp) = setup().await;
         let reply = fs.getattr(req(), 3, None, 0).await.unwrap();
         assert_eq!(reply.attr.kind, FileType::RegularFile);
-        // ghost files report size 0
-        assert_eq!(reply.attr.size, 0);
+        // ghost files report their actual metadata size (better UX)
+        assert_eq!(reply.attr.size, 5_000_000); // rapport.pdf size from setup
     }
 
     #[tokio::test]
